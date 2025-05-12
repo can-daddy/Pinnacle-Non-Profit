@@ -61,11 +61,11 @@ class MainWindow(QWidget):
         MainBodyHeaderLayout = QHBoxLayout()
         Todaydate = QLabel("Today: " + QDate.currentDate().toString())
         Todaydate.setStyleSheet("""
+            Background-color: #1E90FF;
             font-family: 'Lato', sans-serif;
-            background-color: white;
             font-weight: 600;
             font-size: 18px;
-            color: #1B263B;
+            color: White;
             letter-spacing: 0.5px;
         """)
         Morebutton = QPushButton()
@@ -108,11 +108,12 @@ class MainWindow(QWidget):
         MainBodyHeader.setObjectName("MainBodyHeader")
         MainBodyHeader.setStyleSheet("""
             #MainBodyHeader {
-                background-color: #ffffff;
+               
+                Background-color: #1E90FF;
                 color: #20c997;                  
                 border-radius: 10px;              
                 padding: 20px;
-                border: 2px solid Black; 
+                border: 2px solid #006666; 
                 }
             
         """)
@@ -127,7 +128,7 @@ class MainWindow(QWidget):
         ContentBody = QScrollArea()
         ContentBody.setWidgetResizable(True)
         ContentBody.setStyleSheet("background-color: #F0F0F0;")
-        ContentBody.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        ContentBody.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         ContentBody.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         ContentArea = QStackedWidget()
         ContentArea.setStyleSheet("Background-color:White;")
