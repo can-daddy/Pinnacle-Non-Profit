@@ -1,6 +1,14 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+import sqlite3
+
+
+# Create a connection to the SQLite database
+def get_db_connection():
+    conn = sqlite3.connect("Database/database.db")
+    conn.row_factory = sqlite3.Row  # Optional: for dict-like row access
+    return conn
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -189,6 +197,7 @@ class DonorsPage(QWidget):
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Donors")
         self.AddButton = button("Add","primary","lg",icon_path="Icons/add.svg",icon_toolTip="Add New Donor")
+        self.AddButton.clicked.connect(self.DonorForm)
         self.ExportButton = button("Export","success","lg",icon_path="Icons/print.svg",icon_toolTip="Export as Pdf")
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -200,10 +209,10 @@ class DonorsPage(QWidget):
         DonorTableTitle = TableTitle("Donor's List")
         TableHeader = QWidget()
         TableHeaderLayout = QHBoxLayout()
-        SearchBar = QLineEdit()
-        SearchBar.setMinimumWidth(200)
-        SearchBar.setPlaceholderText("Search")
-        SearchBar.setStyleSheet(FormStyles())
+        self.SearchBar = SearchBar()
+        self.SearchBar.setMinimumWidth(200)
+        self.SearchBar.setPlaceholderText("Search")
+        self.SearchBar.setStyleSheet(FormStyles())
         Filter = QLabel("Filter:")
         Filter.setStyleSheet("""
             color: #1B263B;
@@ -221,9 +230,9 @@ class DonorsPage(QWidget):
         FilterComboBox3.setStyleSheet(FormStyles())
         FilterComboBox3.addItems(["All", "Donor Type 1", "Donor Type 2"])
         TableHeaderLayout.addWidget(DonorTableTitle)
-        TableHeaderLayout.addWidget(SearchBar, alignment=Qt.AlignLeft)
-        # TableHeaderLayout.addStretch()
-        TableHeaderLayout.addWidget(Filter, alignment=Qt.AlignLeft)
+        TableHeaderLayout.addStretch()
+        TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(Filter)
         TableHeaderLayout.addWidget(FilterComboBox1)
         TableHeaderLayout.addWidget(FilterComboBox2)
         TableHeaderLayout.addWidget(FilterComboBox3)
@@ -232,17 +241,12 @@ class DonorsPage(QWidget):
         # Table of Donors
         TableofDonors = QTableWidget()
         TableofDonors.setStyleSheet(TableStyles())
-        TableofDonors.setColumnCount(5)
-        TableofDonors.setRowCount(10)
-        TableofDonors.setHorizontalHeaderLabels(["Name", "Type", "Status", "Date Added", "Actions"])
+        TableofDonors.setColumnCount(7)
+        TableofDonors.setHorizontalHeaderLabels(["Name", "Address","Contact","Type", "Category", "Date Joined", "Actions"])
         TableofDonors.horizontalHeader().setStretchLastSection(True)
         TableofDonors.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        TableofDonors.setItem(0, 0, QTableWidgetItem("John Doe"))
-        TableofDonors.setItem(0, 1, QTableWidgetItem("Individual"))
-        TableofDonors.setItem(0, 2, QTableWidgetItem("Active"))
-        TableofDonors.setItem(0, 3, QTableWidgetItem("2023-10-01"))
-        EditBtn = QPushButton("Edit")
-        DeleteBtn = QPushButton("Delete")
+        EditBtn = TableButton("Edit")
+        DeleteBtn = TableButton("Delete")
         Actionbuttons = QWidget()
         ActionbtnsLyt = QHBoxLayout()
         ActionbtnsLyt.addWidget(EditBtn)
@@ -253,37 +257,278 @@ class DonorsPage(QWidget):
         Layout.addWidget(TableofDonors)
     
     def DonorForm(self):
-        self.Container = QDialog()
-        self.FormLayout = QFormLayout()
-        self.FormTitle  = QLabel("Register New Donor")
-        self.FirstNameLayout = QVBoxLayout()
-        self.FirstName_Label = QLabel("Firstname:")
-        self.FirstName_Input = QLineEdit()
-        self.FirstNameLayout.addWidget(self.FirstName_Label)
-        self.FirstNameLayout.addWidget(self.FirstName_Input)
-        self.LastNameLayout = QVBoxLayout()
-        self.LastName_Label = QLabel("Lastname:")
-        self.LastName_Input = QLineEdit()
-        self.LastNameLayout.addWidget(self.LastName_Label)
-        self.LastNameLayout.addWidget(self.LastName_Input)
-        self.FormLayout.addWidget(self.FirstNameLayout,self.LastNameLayout)
-        self.AddressLayout = QVBoxLayout()
-        self.Address_Label = QLabel("Address")
-        self.Address_Input = QLineEdit()
-        self.AddressLayout.addWidget(self.Address_Label)
-        self.AddressLayout.addWidget(self.Address_Input)
-        self.ContactLayout = QVBoxLayout()
-        self.Contact_Label = QLabel("Contact")
-        self.Contact_Input = QLineEdit()
-        self.ContactLayout.addWidget(self.Contact_Label)
-        self.ContactLayout.addWidget(self.Contact_Input)
-        self.FormLayout.addWidget(self.AddressLayout,self.ContactLayout)
-        self.DonorTypeLayout = QVBoxLayout()
-        self.DonorType_Label = QLabel("Donor Type:")
-        self.DonorType_Input = QComboBox()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Register New Donor")
+        dialog.setStyleSheet(DialogStyles())
+        layout = QVBoxLayout(dialog)
+        # Title
+        title = QLabel("Register New Donor")
+        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #1B263B; margin-bottom: 12px;")
+        layout.addWidget(title, alignment=Qt.AlignHCenter)
 
-        
-        
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight)
+        form.setFormAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        form.setHorizontalSpacing(20)
+        form.setVerticalSpacing(12)
+
+        # Firstname
+        firstname_input = QLineEdit()
+        firstname_input.setPlaceholderText("Enter Firstname")
+        form.addRow("Firstname:", firstname_input)
+
+        # Lastname
+        lastname_input = QLineEdit()
+        lastname_input.setPlaceholderText("Enter Lastname")
+        form.addRow("Lastname:", lastname_input)
+
+        # Address
+        address_input = QLineEdit()
+        address_input.setPlaceholderText("Enter Address")
+        form.addRow("Address:", address_input)
+
+        # Contact
+        contact_input = QLineEdit()
+        contact_input.setPlaceholderText("Enter Contact")
+        form.addRow("Contact:", contact_input)
+
+        # Donor Type ComboBox
+        type_combo = QComboBox()
+        type_combo.addItems([
+            "Individual", "Government", "Organization", "Events Contribution", "Other"
+        ])
+        form.addRow("Type:", type_combo)
+
+        # Category ComboBox
+        category_combo = QComboBox()
+        category_combo.addItems([
+            "Regular", "Permanent", "Partnership", "Occasional", "Other"
+        ])
+        form.addRow("Category:", category_combo)
+
+        # Date Joined
+        date_joined = QDateEdit()
+        date_joined.setCalendarPopup(True)
+        date_joined.setDate(QDate.currentDate())
+        form.addRow("Date Joined:", date_joined)
+
+        layout.addLayout(form)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        save_btn = button("Save", "primary", "md", icon_toolTip="Save Donor")
+        cancel_btn = button("Cancel", "secondary", "md", icon_toolTip="Cancel")
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        # Connect buttons
+        cancel_btn.clicked.connect(dialog.reject)
+        save_btn.clicked.connect(lambda: self.insert_donor(
+            firstname_input.text(),
+            lastname_input.text(),
+            address_input.text(),
+            contact_input.text(),
+            type_combo.currentText(),
+            category_combo.currentText(),
+            date_joined.date().toString("yyyy-MM-dd")
+        ))
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+    
+    def insert_donor(self, firstname, lastname, address, contact, donor_type, category, date_joined):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO Donors (firstname, lastname, address, contact, Donor_Type,Donor_Category, Date_Joined)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (firstname, lastname, address, contact, donor_type, category, date_joined))
+            conn.commit()
+        finally:
+            conn.close()
+        QMessageBox.information(self, "Success", "Donor added successfully!")
+    
+ 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_donor_table()
+
+    def insert_donor(self, firstname, lastname, address, contact, donor_type, category, date_joined):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO Donors (firstname, lastname, address, contact, Donor_Type,Donor_Category, Date_Joined)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (firstname, lastname, address, contact, donor_type, category, date_joined))
+            conn.commit()
+        finally:
+            conn.close()
+        QMessageBox.information(self, "Success", "Donor added successfully!")
+        self.refresh_donor_table()
+    
+    def edit_donor(self, donor_id):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM Donors WHERE DonorID = ?", (donor_id,))
+            donor = cur.fetchone()
+        finally:
+            conn.close()
+        if not donor:
+            QMessageBox.warning(self, "Error", "Donor not found.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Edit Donor")
+        dialog.setStyleSheet(DialogStyles())
+        layout = QVBoxLayout(dialog)
+        title = QLabel("Edit Donor")
+        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #1B263B; margin-bottom: 12px;")
+        layout.addWidget(title, alignment=Qt.AlignHCenter)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight)
+        form.setFormAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        form.setHorizontalSpacing(20)
+        form.setVerticalSpacing(12)
+
+        firstname_input = QLineEdit(donor["firstname"])
+        form.addRow("Firstname:", firstname_input)
+        lastname_input = QLineEdit(donor["lastname"])
+        form.addRow("Lastname:", lastname_input)
+        address_input = QLineEdit(donor["address"])
+        form.addRow("Address:", address_input)
+        contact_input = QLineEdit(donor["contact"])
+        form.addRow("Contact:", contact_input)
+
+        type_combo = QComboBox()
+        type_combo.addItems([
+            "Individual", "Government", "Organization", "Events Contribution", "Other"
+        ])
+        idx = type_combo.findText(donor["Donor_Type"])
+        if idx >= 0:
+            type_combo.setCurrentIndex(idx)
+        form.addRow("Type:", type_combo)
+
+        category_combo = QComboBox()
+        category_combo.addItems([
+            "Regular", "Permanent", "Partnership", "Occasional", "Other"
+        ])
+        idx = category_combo.findText(donor["Donor_Category"])
+        if idx >= 0:
+            category_combo.setCurrentIndex(idx)
+        form.addRow("Category:", category_combo)
+
+        date_joined = QDateEdit()
+        date_joined.setCalendarPopup(True)
+        try:
+            date = QDate.fromString(donor["Date_Joined"], "yyyy-MM-dd")
+            if date.isValid():
+                date_joined.setDate(date)
+            else:
+                date_joined.setDate(QDate.currentDate())
+        except Exception:
+            date_joined.setDate(QDate.currentDate())
+        form.addRow("Date Joined:", date_joined)
+
+        layout.addLayout(form)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        save_btn = button("Save", "primary", "md", icon_toolTip="Save Donor")
+        cancel_btn = button("Cancel", "secondary", "md", icon_toolTip="Cancel")
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        cancel_btn.clicked.connect(dialog.reject)
+        def save_edit():
+            conn2 = get_db_connection()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute("""
+                    UPDATE Donors SET firstname=?, lastname=?, address=?, contact=?, Donor_Type=?, Donor_Category=?, Date_Joined=?
+                    WHERE DonorID=?
+                """, (
+                    firstname_input.text(),
+                    lastname_input.text(),
+                    address_input.text(),
+                    contact_input.text(),
+                    type_combo.currentText(),
+                    category_combo.currentText(),
+                    date_joined.date().toString("yyyy-MM-dd"),
+                    donor_id
+                ))
+                conn2.commit()
+            finally:
+                conn2.close()
+            QMessageBox.information(self, "Success", "Donor updated successfully!")
+            dialog.accept()
+            self.refresh_donor_table()
+        save_btn.clicked.connect(save_edit)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def delete_donor(self, donor_id):
+        reply = QMessageBox.question(
+            self, "Confirm Delete",
+            "Are you sure you want to delete this donor?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM Donors WHERE DonorID = ?", (donor_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            QMessageBox.information(self, "Deleted", "Donor deleted successfully!")
+            self.refresh_donor_table()
+
+    def refresh_donor_table(self):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT DonorId, firstname, lastname, address, contact, Donor_Type, Donor_Category, Date_Joined FROM Donors")
+            donors = cur.fetchall()
+        finally:
+            conn.close()
+
+        table = self.findChild(QTableWidget)
+        if not table:
+            return
+
+        table.setRowCount(0)
+        for row_idx, donor in enumerate(donors):
+            table.insertRow(row_idx)
+            table.setRowHeight(row_idx, 45)
+            name = f"{donor['firstname']} {donor['lastname']}"
+            table.setItem(row_idx, 0, QTableWidgetItem(name))
+            table.setItem(row_idx, 1, QTableWidgetItem(donor['address']))
+            table.setItem(row_idx, 2, QTableWidgetItem(donor['contact']))
+            table.setItem(row_idx, 3, QTableWidgetItem(donor['Donor_Type']))
+            table.setItem(row_idx, 4, QTableWidgetItem(donor['Donor_Category']))
+            table.setItem(row_idx, 5, QTableWidgetItem(donor['Date_Joined']))
+
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            edit_btn = TableButton("Edit")
+            delete_btn = TableButton("Delete")
+            action_layout.addWidget(edit_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_widget.setLayout(action_layout)
+            table.setCellWidget(row_idx, 6, action_widget)
+
+            edit_btn.clicked.connect(lambda _, did=donor['DonorID']: self.edit_donor(did))
+            delete_btn.clicked.connect(lambda _, did=donor['DonorID']: self.delete_donor(did))
+
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
         super().__init__(text, parent)
@@ -361,32 +606,39 @@ class Title(QLabel):
         self.setAlignment(Qt.AlignLeft)
 
 class TableButton(QPushButton):
-    def __init__(self, Type):
-        super().__init__()
-        if Type == 'Edit':
-            # Set the icon
-            icon = QIcon()
-            icon.addPixmap(QPixmap('icons/edit_32px.png'), QIcon.Normal, QIcon.Off)
-            self.setIcon(icon)
-            self.setIconSize(QSize(20, 20))  # Set the icon size
+    ICONS = {
+        "Edit": "Icons/edit.svg",
+        "Delete": "Icons/delete.svg"
+    }
+    COLORS = {
+        "Edit": "#28a745",    # Bootstrap success
+        "Delete": "#dc3545"   # Bootstrap danger
+    }
 
-            # Apply correct background-color
-            self.setStyleSheet('background-color: #28a745; text-align: center;')  # Lowercase 'background-color'
-        else:
-            # Set the icon
-            icon = QIcon()
-            icon.addPixmap(QPixmap('icons/trash_can_32px.png'), QIcon.Normal, QIcon.Off)
-            self.setIcon(icon)
-            self.setIconSize(QSize(20, 20))  # Set the icon size
-
-            # Apply correct background-color
-            self.setStyleSheet('background-color: #dc3545; text-align: center')  # Lowercase 'background-color'
-
-        # Set tooltip
-        self.setToolTip(Type)
-
-        # Set cursor to pointing hand
-        self.setCursor(QCursor(Qt.PointingHandCursor))
+    def __init__(self, label, parent=None):
+        super().__init__(parent)
+        self.setText("")
+        icon_path = self.ICONS.get(label, None)
+        if icon_path:
+            self.setIcon(QIcon(icon_path))
+        self.setIconSize(QSize(15, 15))
+        color = self.COLORS.get(label, "#6c757d")  # Default to secondary
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color};
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+                min-width: 24px;
+                min-height: 24px;
+            }}
+            QPushButton:hover {{
+                background-color: #222222;
+                opacity: 0.85;
+            }}
+        """)
+        self.setToolTip(label)
+        self.setCursor(Qt.PointingHandCursor)
 
 def FormStyles():
     form_css = """
@@ -558,6 +810,83 @@ def FormStyles():
          """
     return form_css
 
+def DialogStyles():
+    dialog = """
+    QDialog {
+        background-color: #F9F9F9;
+        border-radius: 12px;
+        font-family: 'Segoe UI', 'Lato', sans-serif;
+        font-size: 14px;
+        color: #2E2E2E;
+    }
+
+    QLabel {
+        font-weight: 500;
+        margin-bottom: 4px;
+    }
+
+    QLineEdit, QComboBox, QDateEdit, QSpinBox {
+        background-color: #FFFFFF;
+        border: 1px solid #CCCCCC;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 14px;
+        color: #2E2E2E;
+    }
+
+    QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QSpinBox:focus {
+        border: 1.5px solid #007BFF;
+        background-color: #FFFFFF;
+    }
+
+    QPushButton {
+        background-color: #007BFF;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        font-weight: 600;
+    }
+
+    QPushButton:hover {
+        background-color: #0056b3;
+    }
+
+    QPushButton:disabled {
+        background-color: #cccccc;
+        color: #666666;
+    }
+
+    QCheckBox {
+        spacing: 6px;
+    }
+
+    QCheckBox::indicator {
+        width: 16px;
+        height: 16px;
+    }
+
+    QCheckBox::indicator:checked {
+        background-color: #007BFF;
+        border: 1px solid #007BFF;
+    }
+
+    QGroupBox {
+        border: 1px solid #E0E0E0;
+        border-radius: 8px;
+        margin-top: 10px;
+        padding: 10px;
+    }
+
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 10px;
+        padding: 0 3px 0 3px;
+        font-weight: bold;
+    }
+"""
+    return dialog
+
 def TableStyles():
     table_stylesheet = """
     QTableWidget {
@@ -698,9 +1027,21 @@ class TableTitle(QLabel):
     def __init__(self,Text):
         super().__init__()
         self.setText(Text)
-        self.setFont(QFont("Lato-Regular", 12))
+        self.setFont(QFont("Lato-Regular", 14))
         self.setStyleSheet("font-weight: bold;color:#1B263B;")
 
+class SearchBar(QLineEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText("Search")
+        self.setClearButtonEnabled(True)
+        self.textChanged.connect(self._toggle_clear_button)
+
+    def _toggle_clear_button(self, text):
+        # PyQt5's setClearButtonEnabled(True) already handles the clear button visibility,
+        # but you can add custom logic here if you want to do more.
+        pass
+    
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
