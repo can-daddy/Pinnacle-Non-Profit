@@ -209,10 +209,17 @@ class DonorsPage(QWidget):
         DonorTableTitle = TableTitle("Donor's List")
         TableHeader = QWidget()
         TableHeaderLayout = QHBoxLayout()
-        self.SearchBar = SearchBar()
+        self.SearchBar = QLineEdit()
+        self.SearchBar.setClearButtonEnabled(True)
         self.SearchBar.setMinimumWidth(200)
         self.SearchBar.setPlaceholderText("Search")
         self.SearchBar.setStyleSheet(FormStyles())
+        self.cancelButton = QPushButton()
+        self.cancelButton.setFlat(True)
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))  # Put your icon in Icons/cancel.svg
+        self.cancelButton.setIconSize(QSize(16, 16))  # Increased size
+        self.cancelButton.setToolTip("Cancel")
+        self.cancelButton.setVisible(False)
         Filter = QLabel("Filter:")
         Filter.setStyleSheet("""
             color: #1B263B;
@@ -220,22 +227,21 @@ class DonorsPage(QWidget):
             font-family: Lato-light;
             """
             )
-        FilterComboBox1 = QComboBox()
-        FilterComboBox1.addItems(["All", "Active", "Inactive"])
-        FilterComboBox1.setStyleSheet(FormStyles())
-        FilterComboBox2 = QComboBox()
-        FilterComboBox2.setStyleSheet(FormStyles())
-        FilterComboBox2.addItems(["All", "Individual", "Organization"])
-        FilterComboBox3 = QComboBox()
-        FilterComboBox3.setStyleSheet(FormStyles())
-        FilterComboBox3.addItems(["All", "Donor Type 1", "Donor Type 2"])
+        type_filter = QComboBox()
+        type_filter.addItems(["All", "Active", "Inactive"])
+        type_filter.setStyleSheet(FormStyles())
+        category_filter = QComboBox()
+        category_filter.setStyleSheet(FormStyles())
+        category_filter.addItems(["All", "Individual", "Organization"])
         TableHeaderLayout.addWidget(DonorTableTitle)
         TableHeaderLayout.addStretch()
         TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(self.cancelButton)
         TableHeaderLayout.addWidget(Filter)
-        TableHeaderLayout.addWidget(FilterComboBox1)
-        TableHeaderLayout.addWidget(FilterComboBox2)
-        TableHeaderLayout.addWidget(FilterComboBox3)
+        TableHeaderLayout.addWidget(QLabel("Type:"))
+        TableHeaderLayout.addWidget(type_filter)
+        TableHeaderLayout.addWidget(QLabel("Category:"))
+        TableHeaderLayout.addWidget(category_filter)
         TableHeader.setLayout(TableHeaderLayout)
         Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
         # Table of Donors
@@ -492,10 +498,36 @@ class DonorsPage(QWidget):
             self.refresh_donor_table()
 
     def refresh_donor_table(self):
+        # Get filter values
+        search_text = self.SearchBar.text().strip().lower()
+        type_filter = self.findChild(QComboBox, None).currentText() if self.findChildren(QComboBox) else "All"
+        # The first QComboBox is Type, the second is Category
+        combo_boxes = self.findChildren(QComboBox)
+        if len(combo_boxes) >= 2:
+            type_filter = combo_boxes[0].currentText()
+            category_filter = combo_boxes[1].currentText()
+        else:
+            type_filter = "All"
+            category_filter = "All"
+
+        # Build SQL query dynamically
+        query = "SELECT DonorID, firstname, lastname, address, contact, Donor_Type, Donor_Category, Date_Joined FROM Donors WHERE 1=1"
+        params = []
+
+        if type_filter != "All":
+            query += " AND Donor_Type = ?"
+            params.append(type_filter)
+        if category_filter != "All":
+            query += " AND Donor_Category = ?"
+            params.append(category_filter)
+        if search_text:
+            query += " AND (LOWER(firstname) LIKE ? OR LOWER(lastname) LIKE ? OR LOWER(address) LIKE ? OR LOWER(contact) LIKE ?)"
+            params.extend([f"%{search_text}%"] * 4)
+
         conn = get_db_connection()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT DonorId, firstname, lastname, address, contact, Donor_Type, Donor_Category, Date_Joined FROM Donors")
+            cur.execute(query, params)
             donors = cur.fetchall()
         finally:
             conn.close()
@@ -528,6 +560,16 @@ class DonorsPage(QWidget):
 
             edit_btn.clicked.connect(lambda _, did=donor['DonorID']: self.edit_donor(did))
             delete_btn.clicked.connect(lambda _, did=donor['DonorID']: self.delete_donor(did))
+
+        # Connect signals for live update if not already connected
+        self.SearchBar.textChanged.disconnect()
+        self.SearchBar.textChanged.connect(self.refresh_donor_table)
+        for combo in combo_boxes:
+            try:
+                combo.currentIndexChanged.disconnect()
+            except Exception:
+                pass
+            combo.currentIndexChanged.connect(self.refresh_donor_table)
 
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
@@ -1030,18 +1072,7 @@ class TableTitle(QLabel):
         self.setFont(QFont("Lato-Regular", 14))
         self.setStyleSheet("font-weight: bold;color:#1B263B;")
 
-class SearchBar(QLineEdit):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setPlaceholderText("Search")
-        self.setClearButtonEnabled(True)
-        self.textChanged.connect(self._toggle_clear_button)
 
-    def _toggle_clear_button(self, text):
-        # PyQt5's setClearButtonEnabled(True) already handles the clear button visibility,
-        # but you can add custom logic here if you want to do more.
-        pass
-    
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
