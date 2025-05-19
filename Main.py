@@ -105,7 +105,6 @@ class MainWindow(QWidget):
             border-color: #1B263B;  /* Slightly lighter navy on hover */
             }
         """)
-
         AccountButton = QPushButton()
         AccountButton.setFlat(True)
         AccountButton.setIcon(QIcon("Icons/account.svg"))  # Put your icon in Icons/account_icon.png
@@ -158,9 +157,9 @@ class MainWindow(QWidget):
         FundsWidget = QWidget()
         BudgetsWidget = QWidget()
         TransactionsWidget = QWidget()
-        CategoriesWidget = QWidget()
-        ProgramsWidget = QWidget()
-        ProjectsWidget = QWidget()
+        CategoriesWidget = Categories_SubCategories()
+        ProgramsWidget = Program_Admnistration()
+        ProjectsWidget = Projects_Activities()
         ReportsWidget = QWidget()
         ContentArea.addWidget(DashboardWidget)
         ContentArea.addWidget(DonorsWidget)
@@ -196,9 +195,9 @@ class DonorsPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Donors")
-        self.AddButton = button("Add","primary","lg",icon_path="Icons/add.svg",icon_toolTip="Add New Donor")
+        self.AddButton = button("Add","primary","md",icon_path="Icons/add.svg",icon_toolTip="Add New Donor")
         self.AddButton.clicked.connect(self.DonorForm)
-        self.ExportButton = button("Export","success","lg",icon_path="Icons/print.svg",icon_toolTip="Export as Pdf")
+        self.ExportButton = button("Export","success","md",icon_path="Icons/print.svg",icon_toolTip="Export as Pdf")
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
         ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -571,6 +570,640 @@ class DonorsPage(QWidget):
                 pass
             combo.currentIndexChanged.connect(self.refresh_donor_table)
 
+class Categoriesvalues():
+    def __init__(self):
+        self.refresh()
+
+    def refresh(self):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT CategoryID, Name FROM Categories")
+            self.values = [{"CategoryID": row["CategoryID"], "Name": row["Name"]} for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_list(self):
+        return self.values
+
+    def get_names(self):
+        return [cat["Name"] for cat in self.values]
+
+    def get_ids(self):
+        return [cat["CategoryID"] for cat in self.values]
+
+    def get_by_id(self, cat_id):
+        for cat in self.values:
+            if cat["CategoryID"] == cat_id:
+                return cat
+        return None
+
+    def get_by_name(self, name):
+        for cat in self.values:
+            if cat["Name"] == name:
+                return cat
+        return None
+    
+class Categories_SubCategories(QWidget):
+    def __init__(self):
+        super().__init__()
+        Layout = QVBoxLayout()
+        self.setLayout(Layout)
+        # Content header Area
+        self.ContentAreaHeader = QWidget()
+        self.ContentAreaHeaderLayout = QHBoxLayout()
+        self.Title = Title("Categories & Subcategories")
+        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New SubCategory")
+        self.AddButton.clicked.connect(lambda: self.add_subcategory())
+        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
+        self.ContentAreaHeaderLayout.addStretch()
+        self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
+        self.ContentAreaHeaderLayout.addWidget(self.ExportButton, alignment=Qt.AlignRight)
+        self.ContentAreaHeader.setLayout(self.ContentAreaHeaderLayout)
+        Layout.addWidget(self.ContentAreaHeader, alignment=Qt.AlignTop) 
+        # Table header
+        TableTitleLabel = TableTitle("Categories & Subcategories List")
+        TableHeader = QWidget()
+        TableHeaderLayout = QHBoxLayout()
+        self.SearchBar = QLineEdit()
+        self.SearchBar.setClearButtonEnabled(True)
+        self.SearchBar.setMinimumWidth(200)
+        self.SearchBar.setPlaceholderText("Search")
+        self.SearchBar.setStyleSheet(FormStyles())
+        self.cancelButton = QPushButton()
+        self.cancelButton.setFlat(True)
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))
+        self.cancelButton.setIconSize(QSize(16, 16))
+        self.cancelButton.setToolTip("Cancel")
+        self.cancelButton.setVisible(False)
+        Filter = QLabel("Filter:")
+        Filter.setStyleSheet("""
+            color: #1B263B;
+            font-size: 12px;
+            font-family: Lato-light;
+            """
+        )
+        category_filter = QComboBox()
+        category_filter.setStyleSheet(FormStyles())
+        # Populate category_filter with categories from the database
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT CategoryID, Name FROM Categories")
+            categories = cur.fetchall()
+        finally:
+            conn.close()
+        category_filter.addItem("All", None)
+        for cat in categories:
+            category_filter.addItem(cat["Name"], cat["CategoryID"])
+        self.category_manage = outline_button("Manage Category","info","sm")
+        self.category_manage.clicked.connect(lambda: self.Category())
+        TableHeaderLayout.addWidget(TableTitleLabel)
+        TableHeaderLayout.addStretch()
+        TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(self.cancelButton)
+        TableHeaderLayout.addWidget(Filter)
+        TableHeaderLayout.addWidget(QLabel("Category:"))
+        TableHeaderLayout.addWidget(category_filter)
+        TableHeaderLayout.addWidget(self.category_manage)
+        TableHeader.setLayout(TableHeaderLayout)
+        Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
+      
+        # Table of Categories & Subcategories
+        TableofCategories = QTableWidget()
+        TableofCategories.setStyleSheet(TableStyles())
+        TableofCategories.setColumnCount(4)
+        TableofCategories.setHorizontalHeaderLabels(["Category", "Subcategory", "Description", "Actions"])
+        TableofCategories.horizontalHeader().setStretchLastSection(True)
+        TableofCategories.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # Example row for UI demonstration
+        action_widget = QWidget()
+        action_layout = QHBoxLayout()
+        edit_btn = TableButton("Edit")
+        delete_btn = TableButton("Delete")
+        action_layout.addWidget(edit_btn)
+        action_layout.addWidget(delete_btn)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_widget.setLayout(action_layout)
+        Layout.addWidget(TableofCategories)
+    
+    def Category(self):
+        self.Dialog = QDialog(self)
+        self.Dialog.setWindowTitle("Manage Category")
+        self.Dialog.setMinimumWidth(500)
+        main_layout = QVBoxLayout(self.Dialog)
+
+        # Title
+        title = QLabel("Category management")
+        title.setAlignment(Qt.AlignHCenter)
+        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #1B263B; margin-bottom: 8px;")
+        main_layout.addWidget(title)
+
+        # Subtitle row: Subtitle (left), SearchBar + Add (right)
+        subtitle_row = QHBoxLayout()
+        subtitle = QLabel("Category List")
+        subtitle.setStyleSheet("font-size: 15px; font-weight: 600; color: #1B263B;")
+        subtitle_row.addWidget(subtitle, alignment=Qt.AlignLeft)
+
+        subtitle_row.addStretch()
+
+        searchbar = QLineEdit()
+        searchbar.setPlaceholderText("Search category...")
+        searchbar.setMinimumWidth(180)
+        searchbar.setStyleSheet(FormStyles())
+        subtitle_row.addWidget(searchbar)
+
+        add_btn = button("Add", "primary", "sm", icon_path="Icons/add.svg", icon_toolTip="Add Category")
+        subtitle_row.addWidget(add_btn)
+
+        main_layout.addLayout(subtitle_row)
+
+        # Table row
+        table = QTableWidget()
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Name", "Description", "Actions"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.setStyleSheet(TableStyles())
+        main_layout.addWidget(table)
+
+        # --- CRUD logic for categories ---
+        def load_categories(filter_text=""):
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if filter_text:
+                    cur.execute("SELECT CategoryID, Name, Description FROM Categories WHERE Name LIKE ? OR Description LIKE ?", (f"%{filter_text}%", f"%{filter_text}%"))
+                else:
+                    cur.execute("SELECT CategoryID, Name, Description FROM Categories")
+                rows = cur.fetchall()
+            finally:
+                conn.close()
+            table.setRowCount(0)
+            for row_idx, cat in enumerate(rows):
+                table.insertRow(row_idx)
+                table.setRowHeight(row_idx, 45)
+                table.setItem(row_idx, 0, QTableWidgetItem(cat["Name"]))
+                table.setItem(row_idx, 1, QTableWidgetItem(cat["Description"]))
+                # Actions
+                action_widget = QWidget()
+                action_layout = QHBoxLayout()
+                edit_btn = TableButton("Edit")
+                delete_btn = TableButton("Delete")
+                action_layout.addWidget(edit_btn)
+                action_layout.addWidget(delete_btn)
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                action_widget.setLayout(action_layout)
+                table.setCellWidget(row_idx, 2, action_widget)
+                edit_btn.clicked.connect(lambda _, cid=cat["CategoryID"]: edit_category(cid))
+                delete_btn.clicked.connect(lambda _, cid=cat["CategoryID"]: delete_category(cid))
+
+        def add_category():
+            dlg = QDialog(self.Dialog)
+            dlg.setWindowTitle("Add Category")
+            dlg.setStyleSheet(DialogStyles())
+            lyt = QVBoxLayout(dlg)
+            form = QFormLayout()
+            name_input = QLineEdit()
+            desc_input = QLineEdit()
+            form.addRow("Name:", name_input)
+            form.addRow("Description:", desc_input)
+            lyt.addLayout(form)
+            btns = QHBoxLayout()
+            save_btn = button("Save", "primary", "sm")
+            cancel_btn = button("Cancel", "secondary", "sm")
+            btns.addStretch()
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            lyt.addLayout(btns)
+            cancel_btn.clicked.connect(dlg.reject)
+            def save():
+                name = name_input.text().strip()
+                desc = desc_input.text().strip()
+                if not name:
+                    QMessageBox.warning(dlg, "Error", "Name is required.")
+                    return
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("INSERT INTO Categories (Name, Description) VALUES (?, ?)", (name, desc))
+                    conn.commit()
+                finally:
+                    conn.close()
+                dlg.accept()
+                load_categories(searchbar.text())
+            save_btn.clicked.connect(save)
+            dlg.exec_()
+
+        def edit_category(cat_id):
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM Categories WHERE CategoryID=?", (cat_id,))
+                cat = cur.fetchone()
+            finally:
+                conn.close()
+            if not cat:
+                QMessageBox.warning(self.Dialog, "Error", "Category not found.")
+                return
+            dlg = QDialog(self.Dialog)
+            dlg.setWindowTitle("Edit Category")
+            dlg.setStyleSheet(DialogStyles())
+            lyt = QVBoxLayout(dlg)
+            form = QFormLayout()
+            name_input = QLineEdit(cat["Name"])
+            desc_input = QLineEdit(cat["Description"])
+            form.addRow("Name:", name_input)
+            form.addRow("Description:", desc_input)
+            lyt.addLayout(form)
+            btns = QHBoxLayout()
+            save_btn = button("Save", "primary", "sm")
+            cancel_btn = button("Cancel", "secondary", "sm")
+            btns.addStretch()
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            lyt.addLayout(btns)
+            cancel_btn.clicked.connect(dlg.reject)
+            def save():
+                name = name_input.text().strip()
+                desc = desc_input.text().strip()
+                if not name:
+                    QMessageBox.warning(dlg, "Error", "Name is required.")
+                    return
+                conn2 = get_db_connection()
+                try:
+                    cur2 = conn2.cursor()
+                    cur2.execute("UPDATE Categories SET Name=?, Description=? WHERE CategoryID=?", (name, desc, cat_id))
+                    conn2.commit()
+                finally:
+                    conn2.close()
+                dlg.accept()
+                load_categories(searchbar.text())
+            save_btn.clicked.connect(save)
+            dlg.exec_()
+
+        def delete_category(cat_id):
+            reply = QMessageBox.question(self.Dialog, "Delete", "Delete this category?", QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM Categories WHERE CategoryID=?", (cat_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+                load_categories(searchbar.text())
+
+        # Connect signals
+        add_btn.clicked.connect(add_category)
+        searchbar.textChanged.connect(lambda: load_categories(searchbar.text()))
+
+        # Initial load
+        load_categories()
+
+        self.Dialog.setLayout(main_layout)
+        self.Dialog.exec_()
+        # --- CRUD logic for Subcategories ---
+
+    def load_subcategories(self, filter_text="", category_id=None):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            query = """
+                SELECT s.SubCategoryID, s.Name, s.Description, c.Name as CategoryName, s.CategoryID
+                FROM Subcategories s
+                JOIN Categories c ON s.category_id = c.CategoryID
+                WHERE 1=1
+            """
+            params = []
+            if filter_text:
+                query += " AND (s.Name LIKE ? OR s.Description LIKE ?)"
+                params.extend([f"%{filter_text}%", f"%{filter_text}%"])
+            if category_id and category_id != "All":
+                query += " AND s.category_id = ?"
+                params.append(category_id)
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        TableofCategories = self.findChildren(QTableWidget)[0]
+        TableofCategories.setRowCount(0)
+        for row_idx, sub in enumerate(rows):
+            TableofCategories.insertRow(row_idx)
+            TableofCategories.setRowHeight(row_idx, 45)
+            TableofCategories.setItem(row_idx, 0, QTableWidgetItem(sub["CategoryName"]))
+            TableofCategories.setItem(row_idx, 1, QTableWidgetItem(sub["Name"]))
+            TableofCategories.setItem(row_idx, 2, QTableWidgetItem(sub["Description"]))
+            # Actions
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            edit_btn = TableButton("Edit")
+            delete_btn = TableButton("Delete")
+            action_layout.addWidget(edit_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_widget.setLayout(action_layout)
+            TableofCategories.setCellWidget(row_idx, 3, action_widget)
+            edit_btn.clicked.connect(lambda _, sid=sub["SubCategoryID"]: self.edit_subcategory(sid))
+            delete_btn.clicked.connect(lambda _, sid=sub["SubCategoryID"]: self.delete_subcategory(sid))
+
+    def add_subcategory(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Subcategory")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        categories = Categoriesvalues()
+        cat_combo = QComboBox()
+        cat_combo.addItems(categories.get_names())
+        name_input = QLineEdit()
+        desc_input = QLineEdit()
+        form.addRow("Category:", cat_combo)
+        form.addRow("Name:", name_input)
+        form.addRow("Description:", desc_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+        def save():
+            cat_name = cat_combo.currentText()
+            cat_id = categories.get_by_name(cat_name)["CategoryID"]
+            name = name_input.text().strip()
+            desc = desc_input.text().strip()
+            if not name:
+                QMessageBox.warning(dlg, "Error", "Name is required.")
+                return
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO Subcategories (Name, Description,category_id) VALUES (?, ?, ?)", (name, desc,cat_id))
+                conn.commit()
+            finally:
+                conn.close()
+            dlg.accept()
+            # Refresh table
+            filter_text = self.SearchBar.text()
+            category_filter = self.findChildren(QComboBox)[0]
+            cat_id = category_filter.currentData()
+            self.load_subcategories(filter_text, cat_id)
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def edit_subcategory(self, subcat_id):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM Subcategories WHERE SubCategoryID=?", (subcat_id,))
+            sub = cur.fetchone()
+        finally:
+            conn.close()
+        if not sub:
+            QMessageBox.warning(self, "Error", "Subcategory not found.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Subcategory")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        categories = Categoriesvalues()
+        cat_combo = QComboBox()
+        cat_combo.addItems(categories.get_names())
+        idx = cat_combo.findText(categories.get_by_id(sub["CategoryID"])["Name"])
+        if idx >= 0:
+            cat_combo.setCurrentIndex(idx)
+        name_input = QLineEdit(sub["Name"])
+        desc_input = QLineEdit(sub["Description"])
+        form.addRow("Category:", cat_combo)
+        form.addRow("Name:", name_input)
+        form.addRow("Description:", desc_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+        def save():
+            cat_name = cat_combo.currentText()
+            cat_id = categories.get_by_name(cat_name)["CategoryID"]
+            name = name_input.text().strip()
+            desc = desc_input.text().strip()
+            if not name:
+                QMessageBox.warning(dlg, "Error", "Name is required.")
+                return
+            conn2 = get_db_connection()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute("UPDATE Subcategories SET CategoryID=?, Name=?, Description=? WHERE SubCategoryID=?", (cat_id, name, desc, subcat_id))
+                conn2.commit()
+            finally:
+                conn2.close()
+            dlg.accept()
+            filter_text = self.SearchBar.text()
+            category_filter = self.findChildren(QComboBox)[0]
+            cat_id = category_filter.currentData()
+            self.load_subcategories(filter_text, cat_id)
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def delete_subcategory(self, subcat_id):
+        reply = QMessageBox.question(self, "Delete", "Delete this subcategory?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM Subcategories WHERE SubCategoryID=?", (subcat_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            filter_text = self.SearchBar.text()
+            category_filter = self.findChildren(QComboBox)[0]
+            cat_id = category_filter.currentData()
+            self.load_subcategories(filter_text, cat_id)
+
+        # Connect AddButton to add_subcategory
+        self.AddButton.clicked.connect(self.add_subcategory)
+
+        # Connect search and filter
+        category_filter = self.findChildren(QComboBox)[0]
+        category_filter.currentIndexChanged.connect(lambda: self.load_subcategories(self.SearchBar.text(), category_filter.currentData()))
+        self.SearchBar.textChanged.connect(lambda: self.load_subcategories(self.SearchBar.text(), category_filter.currentData()))
+
+        # Initial load
+        self.load_subcategories()
+
+class Program_Admnistration(QWidget):
+    def __init__(self):
+        super().__init__()
+        Layout = QVBoxLayout()
+        self.setLayout(Layout)
+        # Content header Area
+        self.ContentAreaHeader = QWidget()
+        self.ContentAreaHeaderLayout = QHBoxLayout()
+        self.Title = Title("Programs & Administration")
+        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Program/Admin")
+        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
+        self.ContentAreaHeaderLayout.addStretch()
+        self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
+        self.ContentAreaHeaderLayout.addWidget(self.ExportButton, alignment=Qt.AlignRight)
+        self.ContentAreaHeader.setLayout(self.ContentAreaHeaderLayout)
+        Layout.addWidget(self.ContentAreaHeader, alignment=Qt.AlignTop)
+
+        # Table header
+        TableTitleLabel = TableTitle("Programs & Administration List")
+        TableHeader = QWidget()
+        TableHeaderLayout = QHBoxLayout()
+        self.SearchBar = QLineEdit()
+        self.SearchBar.setClearButtonEnabled(True)
+        self.SearchBar.setMinimumWidth(200)
+        self.SearchBar.setPlaceholderText("Search")
+        self.SearchBar.setStyleSheet(FormStyles())
+        self.cancelButton = QPushButton()
+        self.cancelButton.setFlat(True)
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))
+        self.cancelButton.setIconSize(QSize(16, 16))
+        self.cancelButton.setToolTip("Cancel")
+        self.cancelButton.setVisible(False)
+        Filter = QLabel("Filter:")
+        Filter.setStyleSheet("""
+            color: #1B263B;
+            font-size: 12px;
+            font-family: Lato-light;
+            """
+        )
+        type_filter = QComboBox()
+        type_filter.addItems(["All", "Active", "Inactive"])
+        type_filter.setStyleSheet(FormStyles())
+        category_filter = QComboBox()
+        category_filter.setStyleSheet(FormStyles())
+        category_filter.addItems(["All", "Program", "Administration"])
+        TableHeaderLayout.addWidget(TableTitleLabel)
+        TableHeaderLayout.addStretch()
+        TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(self.cancelButton)
+        TableHeaderLayout.addWidget(Filter)
+        TableHeaderLayout.addWidget(QLabel("Type:"))
+        TableHeaderLayout.addWidget(type_filter)
+        TableHeaderLayout.addWidget(QLabel("Category:"))
+        TableHeaderLayout.addWidget(category_filter)
+        TableHeader.setLayout(TableHeaderLayout)
+        Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
+
+        # Table of Programs & Administration
+        TableofPrograms = QTableWidget()
+        TableofPrograms.setStyleSheet(TableStyles())
+        TableofPrograms.setColumnCount(4)
+        TableofPrograms.setHorizontalHeaderLabels(["Program/Admin", "Description", "Category", "Actions"])
+        TableofPrograms.horizontalHeader().setStretchLastSection(True)
+        TableofPrograms.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # Example row for UI demonstration
+        TableofPrograms.setRowCount(1)
+        TableofPrograms.setRowHeight(0, 45)
+        TableofPrograms.setItem(0, 0, QTableWidgetItem("Community Outreach"))
+        TableofPrograms.setItem(0, 1, QTableWidgetItem("Annual outreach program"))
+        TableofPrograms.setItem(0, 2, QTableWidgetItem("Program"))
+        action_widget = QWidget()
+        action_layout = QHBoxLayout()
+        edit_btn = TableButton("Edit")
+        delete_btn = TableButton("Delete")
+        action_layout.addWidget(edit_btn)
+        action_layout.addWidget(delete_btn)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_widget.setLayout(action_layout)
+        TableofPrograms.setCellWidget(0, 3, action_widget)
+        Layout.addWidget(TableofPrograms)
+
+class Projects_Activities(QWidget):
+    def __init__(self):
+        super().__init__()
+        Layout = QVBoxLayout()
+        self.setLayout(Layout)
+        # Content header Area
+        self.ContentAreaHeader = QWidget()
+        self.ContentAreaHeaderLayout = QHBoxLayout()
+        self.Title = Title("Projects & Activities")
+        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Project/Activity")
+        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
+        self.ContentAreaHeaderLayout.addStretch()
+        self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
+        self.ContentAreaHeaderLayout.addWidget(self.ExportButton, alignment=Qt.AlignRight)
+        self.ContentAreaHeader.setLayout(self.ContentAreaHeaderLayout)
+        Layout.addWidget(self.ContentAreaHeader, alignment=Qt.AlignTop)
+
+        # Table header
+        TableTitleLabel = TableTitle("Projects & Activities List")
+        TableHeader = QWidget()
+        TableHeaderLayout = QHBoxLayout()
+        self.SearchBar = QLineEdit()
+        self.SearchBar.setClearButtonEnabled(True)
+        self.SearchBar.setMinimumWidth(200)
+        self.SearchBar.setPlaceholderText("Search")
+        self.SearchBar.setStyleSheet(FormStyles())
+        self.cancelButton = QPushButton()
+        self.cancelButton.setFlat(True)
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))
+        self.cancelButton.setIconSize(QSize(16, 16))
+        self.cancelButton.setToolTip("Cancel")
+        self.cancelButton.setVisible(False)
+        Filter = QLabel("Filter:")
+        Filter.setStyleSheet("""
+            color: #1B263B;
+            font-size: 12px;
+            font-family: Lato-light;
+            """
+        )
+        type_filter = QComboBox()
+        type_filter.addItems(["All", "Active", "Inactive"])
+        type_filter.setStyleSheet(FormStyles())
+        category_filter = QComboBox()
+        category_filter.setStyleSheet(FormStyles())
+        category_filter.addItems(["All", "Project", "Activity"])
+        TableHeaderLayout.addWidget(TableTitleLabel)
+        TableHeaderLayout.addStretch()
+        TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(self.cancelButton)
+        TableHeaderLayout.addWidget(Filter)
+        TableHeaderLayout.addWidget(QLabel("Type:"))
+        TableHeaderLayout.addWidget(type_filter)
+        TableHeaderLayout.addWidget(QLabel("Category:"))
+        TableHeaderLayout.addWidget(category_filter)
+        TableHeader.setLayout(TableHeaderLayout)
+        Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
+
+        # Table of Projects & Activities
+        TableofProjects = QTableWidget()
+        TableofProjects.setStyleSheet(TableStyles())
+        TableofProjects.setColumnCount(4)
+        TableofProjects.setHorizontalHeaderLabels(["Project/Activity", "Description", "Category", "Actions"])
+        TableofProjects.horizontalHeader().setStretchLastSection(True)
+        TableofProjects.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # Example row for UI demonstration
+        TableofProjects.setRowCount(1)
+        TableofProjects.setRowHeight(0, 45)
+        TableofProjects.setItem(0, 0, QTableWidgetItem("Tree Planting"))
+        TableofProjects.setItem(0, 1, QTableWidgetItem("Annual tree planting activity"))
+        TableofProjects.setItem(0, 2, QTableWidgetItem("Activity"))
+        action_widget = QWidget()
+        action_layout = QHBoxLayout()
+        edit_btn = TableButton("Edit")
+        delete_btn = TableButton("Delete")
+        action_layout.addWidget(edit_btn)
+        action_layout.addWidget(delete_btn)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_widget.setLayout(action_layout)
+        TableofProjects.setCellWidget(0, 3, action_widget)
+        Layout.addWidget(TableofProjects)
+# Styles and General Design
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
         super().__init__(text, parent)
@@ -1006,6 +1639,9 @@ def TableStyles():
     QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal {
         width: 0px; /* Remove left/right arrows */
     }
+    QTableWidget::item {
+        min-height: 45px;
+    }
     """
     return table_stylesheet
 
@@ -1065,12 +1701,71 @@ def button(text, button_type="primary", size="md", icon_path=None, icon_toolTip 
 
     return button
 
+def outline_button(text, button_type="primary", size="md", icon_path=None, icon_toolTip=None, icon_size=24):
+    """
+    Create a Bootstrap-inspired outline button with optional icons.
+
+    :param text: The text to display on the button.
+    :param button_type: The type of the button (primary, success, danger, etc.).
+    :param size: The size of the button (sm, md, lg).
+    :param icon_path: The file path to the icon (optional).
+    :param icon_toolTip: Tooltip for the button (optional).
+    :param icon_size: The size of the icon (default: 24px).
+    :return: QPushButton styled as a Bootstrap outline button.
+    """
+    button = QPushButton(text)
+    button.setToolTip(icon_toolTip)
+    # Outline Button Styles Dictionary
+    styles = {
+        "primary": "background-color: transparent; color: #007bff; border: 1.5px solid #007bff;",
+        "secondary": "background-color: transparent; color: #6c757d; border: 1.5px solid #6c757d;",
+        "success": "background-color: transparent; color: #28a745; border: 1.5px solid #28a745;",
+        "danger": "background-color: transparent; color: #dc3545; border: 1.5px solid #dc3545;",
+        "warning": "background-color: transparent; color: #ffc107; border: 1.5px solid #ffc107;",
+        "info": "background-color: transparent; color: #17a2b8; border: 1.5px solid #17a2b8;",
+        "light": "background-color: transparent; color: #f8f9fa; border: 1.5px solid #f8f9fa;",
+        "dark": "background-color: transparent; color: #343a40; border: 1.5px solid #343a40;",
+    }
+
+    # Button Sizes Dictionary
+    sizes = {
+        "sm": "padding: 4px 10px; font-size: 12px;",
+        "md": "padding: 6px 12px; font-size: 14px;",
+        "lg": "padding: 10px 16px; font-size: 18px;",
+    }
+
+    # Apply Styles
+    button.setStyleSheet(f"""
+        QPushButton {{
+            border-radius: 5px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            {styles.get(button_type, styles['primary'])}
+            {sizes.get(size, sizes['md'])}
+        }}
+        QPushButton:hover {{
+            background-color: {styles.get(button_type, styles['primary']).split(';')[1].split(':')[1].strip()};
+            opacity: 0.1;
+            color: White;
+        }}
+    """)
+
+    # Optional: Set Icon
+    if icon_path:
+        button.setIcon(QIcon(icon_path))
+        button.setIconSize(QSize(icon_size, icon_size))
+
+    # Optional: Set Cursor to Hand Pointer
+    button.setCursor(Qt.PointingHandCursor)
+
+    return button
+
 class TableTitle(QLabel):
-    def __init__(self,Text):
+    def __init__(self, Text):
         super().__init__()
         self.setText(Text)
         self.setFont(QFont("Lato-Regular", 14))
-        self.setStyleSheet("font-weight: bold;color:#1B263B;")
+        self.setStyleSheet("color:#1B263B;")
 
 
 if __name__ == "__main__":
