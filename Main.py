@@ -154,9 +154,9 @@ class MainWindow(QWidget):
         DashboardLayout.addWidget(DashboardLabel, alignment=Qt.AlignCenter)
         DashboardWidget.setLayout(DashboardLayout)
         DonorsWidget = DonorsPage()
-        FundsWidget = QWidget()
+        FundsWidget = FundPage()
         BudgetsWidget = QWidget()
-        TransactionsWidget = QWidget()
+        TransactionsWidget = TransactionsPage()
         CategoriesWidget = Categories_SubCategories()
         ProgramsWidget = Program_Admnistration()
         ProjectsWidget = Projects_Activities()
@@ -1844,7 +1844,977 @@ class Projects_Activities(QWidget):
         self.ProjectDialog.setLayout(main_layout)
         self.ProjectDialog.exec_()
     
+class TransactionsPage(QWidget):
+    def __init__(self):
+        super().__init__()
+        Layout = QVBoxLayout()
+        self.setLayout(Layout)
+        # Content header Area
+        ContentAreaHeader = QWidget()
+        ContentAreaHeaderLayout = QHBoxLayout()
+        self.Title = Title("Transactions")
+        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Transaction")
+        self.AddButton.clicked.connect(self.add_transaction)
+        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
+        ContentAreaHeaderLayout.addStretch()
+        ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
+        ContentAreaHeaderLayout.addWidget(self.ExportButton, alignment=Qt.AlignRight)
+        ContentAreaHeader.setLayout(ContentAreaHeaderLayout)
+        Layout.addWidget(ContentAreaHeader, alignment=Qt.AlignTop)
 
+        # Table header
+        TableTitleLabel = TableTitle("Transactions List")
+        TableHeader = QWidget()
+        TableHeaderLayout = QHBoxLayout()
+        self.SearchBar = QLineEdit()
+        self.SearchBar.setClearButtonEnabled(True)
+        self.SearchBar.setMinimumWidth(200)
+        self.SearchBar.setPlaceholderText("Search")
+        self.SearchBar.setStyleSheet(FormStyles())
+        self.cancelButton = QPushButton()
+        self.cancelButton.setFlat(True)
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))
+        self.cancelButton.setIconSize(QSize(16, 16))
+        self.cancelButton.setToolTip("Cancel")
+        self.cancelButton.setVisible(False)
+        Filter = QLabel("Filter:")
+        Filter.setStyleSheet("""
+            color: #1B263B;
+            font-size: 12px;
+            font-family: Lato-light;
+        """)
+
+        # Filters
+        self.type_filter = QComboBox()
+        self.type_filter.addItems(["All", "Income", "Expense"])
+        self.type_filter.setStyleSheet(FormStyles())
+
+        self.program_filter = QComboBox()
+        self.program_filter.setStyleSheet(FormStyles())
+        self.program_filter.addItem("All", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+            programs = cur.fetchall()
+        finally:
+            conn.close()
+        for prog in programs:
+            self.program_filter.addItem(prog["PA_Name"], prog["PA_Id"])
+
+        self.project_filter = QComboBox()
+        self.project_filter.setStyleSheet(FormStyles())
+        self.project_filter.addItem("All", None)
+
+        def update_project_filter():
+            self.project_filter.blockSignals(True)
+            self.project_filter.clear()
+            self.project_filter.addItem("All", None)
+            program_id = self.program_filter.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if program_id:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID = ?", (program_id,))
+                else:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+                projects = cur.fetchall()
+            finally:
+                conn.close()
+            for proj in projects:
+                self.project_filter.addItem(proj["ProjectName"], proj["ProjectID"])
+            self.project_filter.blockSignals(False)
+
+        # Initial population
+        update_project_filter()
+        # Update projects when program changes
+        self.program_filter.currentIndexChanged.connect(update_project_filter)
+
+        self.category_filter = QComboBox()
+        self.category_filter.setStyleSheet(FormStyles())
+        self.category_filter.addItem("All", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT CategoryID, Name FROM Categories")
+            categories = cur.fetchall()
+        finally:
+            conn.close()
+        for cat in categories:
+            self.category_filter.addItem(cat["Name"], cat["CategoryID"])
+
+        TableHeaderLayout.addWidget(TableTitleLabel)
+        TableHeaderLayout.addStretch()
+        TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(self.cancelButton)
+        TableHeaderLayout.addWidget(Filter)
+        TableHeaderLayout.addWidget(QLabel("Type:"))
+        TableHeaderLayout.addWidget(self.type_filter)
+        TableHeaderLayout.addWidget(QLabel("Program:"))
+        TableHeaderLayout.addWidget(self.program_filter)
+        TableHeaderLayout.addWidget(QLabel("Project:"))
+        TableHeaderLayout.addWidget(self.project_filter)
+        TableHeaderLayout.addWidget(QLabel("Category:"))
+        TableHeaderLayout.addWidget(self.category_filter)
+        TableHeader.setLayout(TableHeaderLayout)
+        Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
+
+        # Table of Transactions
+        self.TableofTransactions = QTableWidget()
+        self.TableofTransactions.setStyleSheet(TableStyles())
+        self.TableofTransactions.setColumnCount(10)
+        self.TableofTransactions.setHorizontalHeaderLabels([
+            "Date", "Budget Year", "Type", "Amount", "Program", "Project", "Activity", "Reference", "Subcategories"
+        ,"Actions"])
+        self.TableofTransactions.horizontalHeader().setStretchLastSection(True)
+        self.TableofTransactions.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        Layout.addWidget(self.TableofTransactions)
+
+        # Connect Add button (implement add_transaction if needed)
+        # self.AddButton.clicked.connect(self.add_transaction)
+
+        # Connect search and filters
+        self.SearchBar.textChanged.connect(self.refresh_transaction_table)
+        self.type_filter.currentIndexChanged.connect(self.refresh_transaction_table)
+        self.program_filter.currentIndexChanged.connect(self.refresh_transaction_table)
+        self.project_filter.currentIndexChanged.connect(self.refresh_transaction_table)
+        self.category_filter.currentIndexChanged.connect(self.refresh_transaction_table)
+
+        # Initial load
+        self.refresh_transaction_table()
+
+    def refresh_transaction_table(self):
+        search_text = self.SearchBar.text().strip().lower()
+        type_val = self.type_filter.currentText()
+        program_id = self.program_filter.currentData()
+        project_id = self.project_filter.currentData()
+        category_id = self.category_filter.currentData()
+
+        query = """
+            SELECT t.TransactionID, t.TransactionDate, t.BudgetYear, TransactionType , t.Amount,
+                    pa.PA_Name, p.ProjectName, a.ActivityName, t.Reference, s.Name as SubcategoryName
+            FROM Transactions t
+            LEFT JOIN Projects p ON t.ProjectID = p.ProjectID
+            LEFT JOIN Program_administrations pa ON t.ProgramID = pa.PA_Id
+            LEFT JOIN Project_Activities a ON t.ActivityID = a.ActivityID
+            LEFT JOIN Subcategories s ON SubCategories  = s.SubCategoryID
+            WHERE 1=1
+        """
+        params = []
+        if type_val != "All":
+            query += " AND TransactionType  = ?"
+            params.append(type_val)
+        if program_id:
+            query += " AND t.ProgramID = ?"
+            params.append(program_id)
+        if project_id:
+            query += " AND t.ProjectID = ?"
+            params.append(project_id)
+        if category_id:
+            query += " AND s.CategoryID = ?"
+            params.append(category_id)
+        if search_text:
+            query += """ AND (
+                LOWER(t.Reference) LIKE ? OR
+                LOWER(pa.PA_Name) LIKE ? OR
+                LOWER(p.ProjectName) LIKE ? OR
+                LOWER(a.ActivityName) LIKE ? OR
+                LOWER(s.Name) LIKE ?
+            )"""
+            params.extend([f"%{search_text}%"] * 5)
+
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        table = self.TableofTransactions
+        table.setRowCount(0)
+        for row_idx, tx in enumerate(rows):
+            table.insertRow(row_idx)
+            table.setRowHeight(row_idx, 45)
+            table.setItem(row_idx, 0, QTableWidgetItem(tx["TransactionDate"] or ""))
+            table.setItem(row_idx, 1, QTableWidgetItem(str(tx["BudgetYear"]) if tx["BudgetYear"] else ""))
+            table.setItem(row_idx, 2, QTableWidgetItem(tx["TransactionType"] or ""))
+            table.setItem(row_idx, 3, QTableWidgetItem(str(tx["Amount"]) if tx["Amount"] else ""))
+            table.setItem(row_idx, 4, QTableWidgetItem(tx["PA_Name"] or ""))
+            table.setItem(row_idx, 5, QTableWidgetItem(tx["ProjectName"] or ""))
+            table.setItem(row_idx, 6, QTableWidgetItem(tx["ActivityName"] or ""))
+            table.setItem(row_idx, 7, QTableWidgetItem(tx["Reference"] or ""))
+            table.setItem(row_idx, 8, QTableWidgetItem(tx["SubcategoryName"] or ""))
+            # Actions
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            edit_btn = TableButton("Edit")
+            delete_btn = TableButton("Delete")
+            action_layout.addWidget(edit_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_widget.setLayout(action_layout)
+            table.setCellWidget(row_idx, 9, action_widget)
+            # Connect edit/delete actions (implement edit_transaction/delete_transaction as needed)
+            edit_btn.clicked.connect(lambda _, tid=tx["TransactionID"]: self.edit_transaction(tid))
+            delete_btn.clicked.connect(lambda _, tid=tx["TransactionID"]: self.delete_transaction(tid))
+    
+    def add_transaction(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Transaction")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+
+        # Date
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        date_input.setDate(QDate.currentDate())
+        form.addRow("Date:", date_input)
+
+        # Fiscal Year (BudgetYear)
+        fiscal_year_input = QSpinBox()
+        fiscal_year_input.setMinimum(1900)
+        fiscal_year_input.setMaximum(2100)
+        fiscal_year_input.setValue(QDate.currentDate().year())
+        form.addRow("Fiscal Year:", fiscal_year_input)
+
+        # Type
+        type_combo = QComboBox()
+        type_combo.addItems(["Income", "Expense"])
+        form.addRow("Type:", type_combo)
+
+        # Amount
+        amount_input = QLineEdit()
+        amount_input.setValidator(QDoubleValidator(0, 1e12, 2))
+        form.addRow("Amount:", amount_input)
+
+        # Program
+        program_combo = QComboBox()
+        program_combo.addItem("None", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+            programs = cur.fetchall()
+        finally:
+            conn.close()
+        for prog in programs:
+            program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+        form.addRow("Program:", program_combo)
+
+        # Project (filtered by program)
+        project_combo = QComboBox()
+        project_combo.addItem("None", None)
+        def update_projects():
+            project_combo.blockSignals(True)
+            project_combo.clear()
+            project_combo.addItem("None", None)
+            prog_id = program_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if prog_id:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
+                else:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+                projects = cur.fetchall()
+            finally:
+                conn.close()
+            for proj in projects:
+                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+            project_combo.blockSignals(False)
+        update_projects()
+        program_combo.currentIndexChanged.connect(update_projects)
+        form.addRow("Project:", project_combo)
+
+        # Activity (filtered by project)
+        activity_combo = QComboBox()
+        activity_combo.addItem("None", None)
+        def update_activities():
+            activity_combo.blockSignals(True)
+            activity_combo.clear()
+            activity_combo.addItem("None", None)
+            proj_id = project_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if proj_id:
+                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities WHERE ProjectID=?", (proj_id,))
+                else:
+                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities")
+                acts = cur.fetchall()
+            finally:
+                conn.close()
+            for act in acts:
+                activity_combo.addItem(act["ActivityName"], act["ActivityID"])
+            activity_combo.blockSignals(False)
+        update_activities()
+        project_combo.currentIndexChanged.connect(update_activities)
+        form.addRow("Activity:", activity_combo)
+
+        # Reference
+        reference_input = QLineEdit()
+        form.addRow("Reference:", reference_input)
+
+        # Description
+        description_input = QLineEdit()
+        form.addRow("Description:", description_input)
+
+        # Category (for subcategory navigation)
+        category_combo = QComboBox()
+        category_combo.addItem("None", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT CategoryID, Name FROM Categories")
+            cats = cur.fetchall()
+        finally:
+            conn.close()
+        for cat in cats:
+            category_combo.addItem(cat["Name"], cat["CategoryID"])
+        form.addRow("Category:", category_combo)
+
+        # Subcategory (filtered by category)
+        subcategory_combo = QComboBox()
+        subcategory_combo.addItem("None", None)
+        def update_subcategories():
+            subcategory_combo.blockSignals(True)
+            subcategory_combo.clear()
+            subcategory_combo.addItem("None", None)
+            cat_id = category_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if cat_id:
+                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories WHERE category_id=?", (cat_id,))
+                else:
+                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories")
+                subs = cur.fetchall()
+            finally:
+                conn.close()
+            for sub in subs:
+                subcategory_combo.addItem(sub["Name"], sub["SubCategoryID"])
+            subcategory_combo.blockSignals(False)
+        update_subcategories()
+        category_combo.currentIndexChanged.connect(update_subcategories)
+        form.addRow("Subcategory:", subcategory_combo)
+
+        # Logic: Disable Activity, Category, Subcategory if Income is selected
+        def update_fields_for_type():
+            is_income = type_combo.currentText() == "Income"
+            activity_combo.setEnabled(not is_income)
+            category_combo.setEnabled(not is_income)
+            subcategory_combo.setEnabled(not is_income)
+        type_combo.currentIndexChanged.connect(update_fields_for_type)
+        update_fields_for_type()
+
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        def save():
+            date = date_input.date().toString("yyyy-MM-dd")
+            fiscal_year = fiscal_year_input.value()
+            ttype = type_combo.currentText()
+            try:
+                amount = float(amount_input.text())
+            except Exception:
+                QMessageBox.warning(dlg, "Error", "Amount is required and must be a number.")
+                return
+            program_id = program_combo.currentData()
+            project_id = project_combo.currentData()
+            activity_id = activity_combo.currentData() if not (ttype == "Income") else None
+            reference = reference_input.text().strip()
+            desc = description_input.text().strip()
+            subcat_id = subcategory_combo.currentData() if not (ttype == "Income") else None
+
+            # Validation
+            if not date or not ttype or not amount or not fiscal_year:
+                QMessageBox.warning(dlg, "Error", "Date, Type, Amount, and Fiscal Year are required.")
+                return
+            if ttype == "Expense" and not subcat_id:
+                QMessageBox.warning(dlg, "Error", "Subcategory is required for Expense.")
+                return
+
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO Transactions
+                    (TransactionDate, BudgetYear, TransactionType, Amount, ProgramID, ProjectID, ActivityID, Reference, Description, SubCategories)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (date, fiscal_year, ttype, amount, program_id, project_id, activity_id, reference, desc, subcat_id))
+                conn.commit()
+                transaction_id = cur.lastrowid
+            finally:
+                conn.close()
+            dlg.accept()
+            self.refresh_transaction_table()
+            if ttype == "Income":
+                self.add_fund_after_income(transaction_id)
+
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def add_fund_after_income(self, transaction_id):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Fund for Income Transaction")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        name_input = QLineEdit()
+        # TransactionID (readonly)
+        tid_label = QLabel(str(transaction_id))
+        # Donor ComboBox
+        donor_combo = QComboBox()
+        donor_combo.addItem("None", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT DonorID, firstname, lastname FROM Donors")
+            donors = cur.fetchall()
+        finally:
+            conn.close()
+        for d in donors:
+            donor_combo.addItem(f"{d['firstname']} {d['lastname']}", d["DonorID"])
+        fundtype_input = QLineEdit()
+        form.addRow("Fund Name:", name_input)
+        form.addRow("Transaction ID:", tid_label)
+        form.addRow("Donor:", donor_combo)
+        form.addRow("Fund Type:", fundtype_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+        def save():
+            name = name_input.text().strip()
+            donor_id = donor_combo.currentData()
+            fundtype = fundtype_input.text().strip()
+            if not name or not fundtype:
+                QMessageBox.warning(dlg, "Error", "Fund Name and Fund Type are required.")
+                return
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO Fund (FundName , TransactionID, DonorID, FundType) VALUES (?, ?, ?, ?)",
+                    (name, transaction_id, donor_id, fundtype)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            dlg.accept()
+            if hasattr(self, "refresh_fund_table"):
+                self.refresh_fund_table()
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def edit_transaction(self, transaction_id):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM Transactions WHERE TransactionID=?", (transaction_id,))
+            tx = cur.fetchone()
+        finally:
+            conn.close()
+        if not tx:
+            QMessageBox.warning(self, "Error", "Transaction not found.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Transaction")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        if tx["TransactionDate"]:
+            date_input.setDate(QDate.fromString(tx["TransactionDate"], "yyyy-MM-dd"))
+        else:
+            date_input.setDate(QDate.currentDate())
+        type_combo = QComboBox()
+        type_combo.addItems(["Income", "Expense"])
+        idx = type_combo.findText(tx["TransactionType"])
+        if idx >= 0:
+            type_combo.setCurrentIndex(idx)
+        amount_input = QLineEdit(str(tx["Amount"]))
+        amount_input.setValidator(QDoubleValidator(0, 1e12, 2))
+        # Program
+        program_combo = QComboBox()
+        program_combo.addItem("None", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+            programs = cur.fetchall()
+        finally:
+            conn.close()
+        prog_idx = 0
+        for i, prog in enumerate(programs):
+            program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+            if tx["ProgramID"] == prog["PA_Id"]:
+                prog_idx = i + 1
+        program_combo.setCurrentIndex(prog_idx)
+        # Project
+        project_combo = QComboBox()
+        project_combo.addItem("None", None)
+        def update_projects():
+            project_combo.blockSignals(True)
+            project_combo.clear()
+            project_combo.addItem("None", None)
+            prog_id = program_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if prog_id:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
+                else:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+                projects = cur.fetchall()
+            finally:
+                conn.close()
+            proj_idx = 0
+            for i, proj in enumerate(projects):
+                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+                if tx["ProjectID"] == proj["ProjectID"]:
+                    proj_idx = i + 1
+            project_combo.setCurrentIndex(proj_idx)
+            project_combo.blockSignals(False)
+        update_projects()
+        program_combo.currentIndexChanged.connect(update_projects)
+        # Activity
+        activity_combo = QComboBox()
+        activity_combo.addItem("None", None)
+        def update_activities():
+            activity_combo.blockSignals(True)
+            activity_combo.clear()
+            activity_combo.addItem("None", None)
+            proj_id = project_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if proj_id:
+                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities WHERE ProjectID=?", (proj_id,))
+                else:
+                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities")
+                acts = cur.fetchall()
+            finally:
+                conn.close()
+            act_idx = 0
+            for i, act in enumerate(acts):
+                activity_combo.addItem(act["ActivityName"], act["ActivityID"])
+                if tx["ActivityID"] == act["ActivityID"]:
+                    act_idx = i + 1
+            activity_combo.setCurrentIndex(act_idx)
+            activity_combo.blockSignals(False)
+        update_activities()
+        project_combo.currentIndexChanged.connect(update_activities)
+        reference_input = QLineEdit(tx["Reference"] or "")
+        description_input = QLineEdit(tx["Description"] or "")
+        # Category
+        category_combo = QComboBox()
+        category_combo.addItem("None", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT CategoryID, Name FROM Categories")
+            cats = cur.fetchall()
+        finally:
+            conn.close()
+        cat_idx = 0
+        for i, cat in enumerate(cats):
+            category_combo.addItem(cat["Name"], cat["CategoryID"])
+            # Find subcategory's category
+            if tx["SubCategories"]:
+                conn2 = get_db_connection()
+                try:
+                    cur2 = conn2.cursor()
+                    cur2.execute("SELECT category_id FROM Subcategories WHERE SubCategoryID=?", (tx["SubCategories"],))
+                    subcat = cur2.fetchone()
+                finally:
+                    conn2.close()
+                if subcat and subcat["category_id"] == cat["CategoryID"]:
+                    cat_idx = i + 1
+        category_combo.setCurrentIndex(cat_idx)
+        # Subcategory
+        subcategory_combo = QComboBox()
+        subcategory_combo.addItem("None", None)
+        def update_subcategories():
+            subcategory_combo.blockSignals(True)
+            subcategory_combo.clear()
+            subcategory_combo.addItem("None", None)
+            cat_id = category_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if cat_id:
+                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories WHERE category_id=?", (cat_id,))
+                else:
+                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories")
+                subs = cur.fetchall()
+            finally:
+                conn.close()
+            sub_idx = 0
+            for i, sub in enumerate(subs):
+                subcategory_combo.addItem(sub["Name"], sub["SubCategoryID"])
+                if tx["SubCategories"] == sub["SubCategoryID"]:
+                    sub_idx = i + 1
+            subcategory_combo.setCurrentIndex(sub_idx)
+            subcategory_combo.blockSignals(False)
+        update_subcategories()
+        category_combo.currentIndexChanged.connect(update_subcategories)
+        form.addRow("Date:", date_input)
+        form.addRow("Type:", type_combo)
+        form.addRow("Amount:", amount_input)
+        form.addRow("Program:", program_combo)
+        form.addRow("Project:", project_combo)
+        form.addRow("Activity:", activity_combo)
+        form.addRow("Reference:", reference_input)
+        form.addRow("Description:", description_input)
+        form.addRow("Category:", category_combo)
+        form.addRow("Subcategory:", subcategory_combo)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+        def save():
+            date = date_input.date().toString("yyyy-MM-dd")
+            ttype = type_combo.currentText()
+            try:
+                amount = float(amount_input.text())
+            except Exception:
+                QMessageBox.warning(dlg, "Error", "Amount is required and must be a number.")
+                return
+            program_id = program_combo.currentData()
+            project_id = project_combo.currentData()
+            activity_id = activity_combo.currentData()
+            reference = reference_input.text().strip()
+            desc = description_input.text().strip()
+            subcat_id = subcategory_combo.currentData()
+            if not date or not ttype or not amount or not subcat_id:
+                QMessageBox.warning(dlg, "Error", "Date, Type, Amount, and Subcategory are required.")
+                return
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE Transactions SET
+                    TransactionDate=?, TransactionType=?, Amount=?, ProgramID=?, ProjectID=?, ActivityID=?, Reference=?, Description=?, SubCategories=?
+                    WHERE TransactionID=?
+                """, (date, ttype, amount, program_id, project_id, activity_id, reference, desc, subcat_id, transaction_id))
+                conn.commit()
+            finally:
+                conn.close()
+            dlg.accept()
+            self.refresh_transaction_table()
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def delete_transaction(self, transaction_id):
+        reply = QMessageBox.question(self, "Delete", "Delete this transaction?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM Transactions WHERE TransactionID=?", (transaction_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            self.refresh_transaction_table()
+
+class FundPage(QWidget):
+    def __init__(self):
+        super().__init__()
+        Layout = QVBoxLayout()
+        self.setLayout(Layout)
+        # Content header Area
+        ContentAreaHeader = QWidget()
+        ContentAreaHeaderLayout = QHBoxLayout()
+        self.Title = Title("Funds")
+        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
+        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
+        ContentAreaHeaderLayout.addStretch()
+        ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
+        ContentAreaHeaderLayout.addWidget(self.ExportButton, alignment=Qt.AlignRight)
+        ContentAreaHeader.setLayout(ContentAreaHeaderLayout)
+        Layout.addWidget(ContentAreaHeader, alignment=Qt.AlignTop)
+
+        # Table header
+        TableTitleLabel = TableTitle("Funds List")
+        TableHeader = QWidget()
+        TableHeaderLayout = QHBoxLayout()
+        self.SearchBar = QLineEdit()
+        self.SearchBar.setClearButtonEnabled(True)
+        self.SearchBar.setMinimumWidth(200)
+        self.SearchBar.setPlaceholderText("Search")
+        self.SearchBar.setStyleSheet(FormStyles())
+        self.cancelButton = QPushButton()
+        self.cancelButton.setFlat(True)
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))
+        self.cancelButton.setIconSize(QSize(16, 16))
+        self.cancelButton.setToolTip("Cancel")
+        self.cancelButton.setVisible(False)
+        Filter = QLabel("Filter:")
+        Filter.setStyleSheet("""
+            color: #1B263B;
+            font-size: 12px;
+            font-family: Lato-light;
+        """)
+        self.type_filter = QComboBox()
+        self.type_filter.setStyleSheet(FormStyles())
+        self.type_filter.addItem("All")
+        # Populate FundType from DB
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT FundType FROM Fund")
+            types = cur.fetchall()
+        finally:
+            conn.close()
+        for t in types:
+            if t["FundType"]:
+                self.type_filter.addItem(t["FundType"])
+        TableHeaderLayout.addWidget(TableTitleLabel)
+        TableHeaderLayout.addStretch()
+        TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
+        TableHeaderLayout.addWidget(self.cancelButton)
+        TableHeaderLayout.addWidget(Filter)
+        TableHeaderLayout.addWidget(QLabel("Type:"))
+        TableHeaderLayout.addWidget(self.type_filter)
+        TableHeader.setLayout(TableHeaderLayout)
+        Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
+
+        # Table of Funds
+        self.TableofFunds = QTableWidget()
+        self.TableofFunds.setStyleSheet(TableStyles())
+        self.TableofFunds.setColumnCount(5)
+        self.TableofFunds.setHorizontalHeaderLabels(["Name", "Date", "Donor Name", "FundType", "Actions"])
+        self.TableofFunds.horizontalHeader().setStretchLastSection(True)
+        self.TableofFunds.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        Layout.addWidget(self.TableofFunds)
+
+        # Connect Add button
+        self.AddButton.clicked.connect(self.add_fund)
+
+        # Connect search and filter
+        self.SearchBar.textChanged.connect(self.refresh_fund_table)
+        self.type_filter.currentIndexChanged.connect(self.refresh_fund_table)
+
+        # Initial load
+        self.refresh_fund_table()
+
+    def refresh_fund_table(self):
+        search_text = self.SearchBar.text().strip().lower()
+        type_val = self.type_filter.currentText()
+        query = """
+            SELECT f.FundID, f.FundName , t.TransactionDate as Date, d.firstname, d.lastname, f.FundType
+            FROM Fund f
+            LEFT JOIN Donors d ON f.DonorID = d.DonorID
+            LEFT JOIN Transactions t ON f.TransactionID = t.TransactionID
+            WHERE 1=1
+        """
+        params = []
+        if type_val != "All":
+            query += " AND f.FundType = ?"
+            params.append(type_val)
+        if search_text:
+            query += " AND (LOWER(f.FundName ) LIKE ? OR LOWER(f.FundType) LIKE ? OR LOWER(d.firstname) LIKE ? OR LOWER(d.lastname) LIKE ?)"
+            params.extend([f"%{search_text}%"] * 4)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        table = self.TableofFunds
+        table.setRowCount(0)
+        for row_idx, fund in enumerate(rows):
+            table.insertRow(row_idx)
+            table.setRowHeight(row_idx, 45)
+            table.setItem(row_idx, 0, QTableWidgetItem(fund["FundName "] or ""))
+            table.setItem(row_idx, 1, QTableWidgetItem(fund["Date"] or ""))
+            donor_name = f"{fund['firstname'] or ''} {fund['lastname'] or ''}".strip()
+            table.setItem(row_idx, 2, QTableWidgetItem(donor_name))
+            table.setItem(row_idx, 3, QTableWidgetItem(fund["FundType"] or ""))
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            edit_btn = TableButton("Edit")
+            delete_btn = TableButton("Delete")
+            action_layout.addWidget(edit_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_widget.setLayout(action_layout)
+            table.setCellWidget(row_idx, 4, action_widget)
+            edit_btn.clicked.connect(lambda _, fid=fund["FundID"]: self.edit_fund(fid))
+            delete_btn.clicked.connect(lambda _, fid=fund["FundID"]: self.delete_fund(fid))
+
+    def add_fund(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Fund")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        name_input = QLineEdit()
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        date_input.setDate(QDate.currentDate())
+        # Donor ComboBox
+        donor_combo = QComboBox()
+        donor_list = []
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT DonorID, firstname, lastname FROM Donors")
+            donor_list = cur.fetchall()
+        finally:
+            conn.close()
+        donor_combo.addItem("None", None)
+        for d in donor_list:
+            donor_combo.addItem(f"{d['firstname']} {d['lastname']}", d["DonorID"])
+        fundtype_input = QLineEdit()
+        form.addRow("Name:", name_input)
+        form.addRow("Date:", date_input)
+        form.addRow("Donor:", donor_combo)
+        form.addRow("FundType:", fundtype_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+        def save():
+            name = name_input.text().strip()
+            date = date_input.date().toString("yyyy-MM-dd")
+            donor_id = donor_combo.currentData()
+            fundtype = fundtype_input.text().strip()
+            if not name or not fundtype:
+                QMessageBox.warning(dlg, "Error", "Name and FundType are required.")
+                return
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO Fund (FundName , Date, DonorID, FundType) VALUES (?, ?, ?, ?)",
+                    (name, date, donor_id, fundtype)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            dlg.accept()
+            self.refresh_fund_table()
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def edit_fund(self, fund_id):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM Fund WHERE FundID=?", (fund_id,))
+            fund = cur.fetchone()
+        finally:
+            conn.close()
+        if not fund:
+            QMessageBox.warning(self, "Error", "Fund not found.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Fund")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        name_input = QLineEdit(fund["FundName "])
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        if fund["Date"]:
+            date_input.setDate(QDate.fromString(fund["Date"], "yyyy-MM-dd"))
+        else:
+            date_input.setDate(QDate.currentDate())
+        # Donor ComboBox
+        donor_combo = QComboBox()
+        donor_list = []
+        conn2 = get_db_connection()
+        try:
+            cur2 = conn2.cursor()
+            cur2.execute("SELECT DonorID, firstname, lastname FROM Donors")
+            donor_list = cur2.fetchall()
+        finally:
+            conn2.close()
+        donor_combo.addItem("None", None)
+        idx = 0
+        for i, d in enumerate(donor_list):
+            donor_combo.addItem(f"{d['firstname']} {d['lastname']}", d["DonorID"])
+            if fund["DonorID"] == d["DonorID"]:
+                idx = i + 1  # +1 for "None"
+        donor_combo.setCurrentIndex(idx)
+        fundtype_input = QLineEdit(fund["FundType"])
+        form.addRow("Name:", name_input)
+        form.addRow("Date:", date_input)
+        form.addRow("Donor:", donor_combo)
+        form.addRow("FundType:", fundtype_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+        def save():
+            name = name_input.text().strip()
+            date = date_input.date().toString("yyyy-MM-dd")
+            donor_id = donor_combo.currentData()
+            fundtype = fundtype_input.text().strip()
+            if not name or not fundtype:
+                QMessageBox.warning(dlg, "Error", "Name and FundType are required.")
+                return
+            conn3 = get_db_connection()
+            try:
+                cur3 = conn3.cursor()
+                cur3.execute(
+                    "UPDATE Fund SET FundName =?, Date=?, DonorID=?, FundType=? WHERE FundID=?",
+                    (name, date, donor_id, fundtype, fund_id)
+                )
+                conn3.commit()
+            finally:
+                conn3.close()
+            dlg.accept()
+            self.refresh_fund_table()
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def delete_fund(self, fund_id):
+        reply = QMessageBox.question(self, "Delete", "Delete this fund?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM Fund WHERE FundID=?", (fund_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            self.refresh_fund_table()
 
 # Styles and General Design
 class Links(QPushButton):
