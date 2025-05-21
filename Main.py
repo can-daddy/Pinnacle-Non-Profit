@@ -614,14 +614,14 @@ class Categories_SubCategories(QWidget):
         self.ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Categories & Subcategories")
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New SubCategory")
-        self.AddButton.clicked.connect(lambda: self.add_subcategory())
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
         self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
         self.ContentAreaHeaderLayout.addWidget(self.ExportButton, alignment=Qt.AlignRight)
         self.ContentAreaHeader.setLayout(self.ContentAreaHeaderLayout)
-        Layout.addWidget(self.ContentAreaHeader, alignment=Qt.AlignTop) 
+        Layout.addWidget(self.ContentAreaHeader, alignment=Qt.AlignTop)
+
         # Table header
         TableTitleLabel = TableTitle("Categories & Subcategories List")
         TableHeader = QWidget()
@@ -644,8 +644,9 @@ class Categories_SubCategories(QWidget):
             font-family: Lato-light;
             """
         )
-        category_filter = QComboBox()
-        category_filter.setStyleSheet(FormStyles())
+        self.category_filter = QComboBox()
+        self.category_filter.setStyleSheet(FormStyles())
+        self.category_filter.addItem("All", None)
         # Populate category_filter with categories from the database
         conn = get_db_connection()
         try:
@@ -654,40 +655,45 @@ class Categories_SubCategories(QWidget):
             categories = cur.fetchall()
         finally:
             conn.close()
-        category_filter.addItem("All", None)
         for cat in categories:
-            category_filter.addItem(cat["Name"], cat["CategoryID"])
-        self.category_manage = outline_button("Manage Category","info","sm")
-        self.category_manage.clicked.connect(lambda: self.Category())
+            self.category_filter.addItem(cat["Name"], cat["CategoryID"])
+        self.category_manage = outline_button("Manage Category", "info", "sm")
+        self.category_manage.clicked.connect(self.Category)
         TableHeaderLayout.addWidget(TableTitleLabel)
         TableHeaderLayout.addStretch()
         TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
         TableHeaderLayout.addWidget(self.cancelButton)
         TableHeaderLayout.addWidget(Filter)
         TableHeaderLayout.addWidget(QLabel("Category:"))
-        TableHeaderLayout.addWidget(category_filter)
+        TableHeaderLayout.addWidget(self.category_filter)
         TableHeaderLayout.addWidget(self.category_manage)
         TableHeader.setLayout(TableHeaderLayout)
         Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
-      
+
         # Table of Categories & Subcategories
-        TableofCategories = QTableWidget()
-        TableofCategories.setStyleSheet(TableStyles())
-        TableofCategories.setColumnCount(4)
-        TableofCategories.setHorizontalHeaderLabels(["Category", "Subcategory", "Description", "Actions"])
-        TableofCategories.horizontalHeader().setStretchLastSection(True)
-        TableofCategories.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # Example row for UI demonstration
-        action_widget = QWidget()
-        action_layout = QHBoxLayout()
-        edit_btn = TableButton("Edit")
-        delete_btn = TableButton("Delete")
-        action_layout.addWidget(edit_btn)
-        action_layout.addWidget(delete_btn)
-        action_layout.setContentsMargins(0, 0, 0, 0)
-        action_widget.setLayout(action_layout)
-        Layout.addWidget(TableofCategories)
-    
+        self.TableofCategories = QTableWidget()
+        self.TableofCategories.setStyleSheet(TableStyles())
+        self.TableofCategories.setColumnCount(4)
+        self.TableofCategories.setHorizontalHeaderLabels(["Category", "Subcategory", "Description", "Actions"])
+        self.TableofCategories.horizontalHeader().setStretchLastSection(True)
+        self.TableofCategories.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        Layout.addWidget(self.TableofCategories)
+
+        # Connect AddButton to add_subcategory
+        self.AddButton.clicked.connect(self.add_subcategory)
+
+        # Connect search and filter
+        self.category_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self.SearchBar.textChanged.connect(self._on_filter_changed)
+
+        # Initial load
+        self.load_subcategories()
+   
+    def _on_filter_changed(self):
+        filter_text = self.SearchBar.text()
+        cat_id = self.category_filter.currentData()
+        self.load_subcategories(filter_text, cat_id)
+
     def Category(self):
         self.Dialog = QDialog(self)
         self.Dialog.setWindowTitle("Manage Category")
@@ -864,37 +870,37 @@ class Categories_SubCategories(QWidget):
 
         self.Dialog.setLayout(main_layout)
         self.Dialog.exec_()
-        # --- CRUD logic for Subcategories ---
 
     def load_subcategories(self, filter_text="", category_id=None):
+        # category_id can be None or an integer
         conn = get_db_connection()
         try:
             cur = conn.cursor()
             query = """
-                SELECT s.SubCategoryID, s.Name, s.Description, c.Name as CategoryName, s.CategoryID
+                SELECT s.SubCategoryID, s.Name, s.Description, c.Name as CategoryName, s.category_id
                 FROM Subcategories s
                 JOIN Categories c ON s.category_id = c.CategoryID
                 WHERE 1=1
             """
             params = []
-            if filter_text:
-                query += " AND (s.Name LIKE ? OR s.Description LIKE ?)"
-                params.extend([f"%{filter_text}%", f"%{filter_text}%"])
-            if category_id and category_id != "All":
+            if category_id and category_id is not None:
                 query += " AND s.category_id = ?"
                 params.append(category_id)
+            if filter_text:
+                query += " AND (LOWER(s.Name) LIKE ? OR LOWER(s.Description) LIKE ? OR LOWER(c.Name) LIKE ?)"
+                filter_text_l = f"%{filter_text.lower()}%"
+                params.extend([filter_text_l, filter_text_l, filter_text_l])
             cur.execute(query, params)
             rows = cur.fetchall()
         finally:
             conn.close()
-        TableofCategories = self.findChildren(QTableWidget)[0]
-        TableofCategories.setRowCount(0)
+        self.TableofCategories.setRowCount(0)
         for row_idx, sub in enumerate(rows):
-            TableofCategories.insertRow(row_idx)
-            TableofCategories.setRowHeight(row_idx, 45)
-            TableofCategories.setItem(row_idx, 0, QTableWidgetItem(sub["CategoryName"]))
-            TableofCategories.setItem(row_idx, 1, QTableWidgetItem(sub["Name"]))
-            TableofCategories.setItem(row_idx, 2, QTableWidgetItem(sub["Description"]))
+            self.TableofCategories.insertRow(row_idx)
+            self.TableofCategories.setRowHeight(row_idx, 45)
+            self.TableofCategories.setItem(row_idx, 0, QTableWidgetItem(sub["CategoryName"]))
+            self.TableofCategories.setItem(row_idx, 1, QTableWidgetItem(sub["Name"]))
+            self.TableofCategories.setItem(row_idx, 2, QTableWidgetItem(sub["Description"]))
             # Actions
             action_widget = QWidget()
             action_layout = QHBoxLayout()
@@ -904,7 +910,7 @@ class Categories_SubCategories(QWidget):
             action_layout.addWidget(delete_btn)
             action_layout.setContentsMargins(0, 0, 0, 0)
             action_widget.setLayout(action_layout)
-            TableofCategories.setCellWidget(row_idx, 3, action_widget)
+            self.TableofCategories.setCellWidget(row_idx, 3, action_widget)
             edit_btn.clicked.connect(lambda _, sid=sub["SubCategoryID"]: self.edit_subcategory(sid))
             delete_btn.clicked.connect(lambda _, sid=sub["SubCategoryID"]: self.delete_subcategory(sid))
 
@@ -942,15 +948,14 @@ class Categories_SubCategories(QWidget):
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
-                cur.execute("INSERT INTO Subcategories (Name, Description,category_id) VALUES (?, ?, ?)", (name, desc,cat_id))
+                cur.execute("INSERT INTO Subcategories (Name, Description, CategoryID) VALUES (?, ?, ?)", (name, desc, cat_id))
                 conn.commit()
             finally:
                 conn.close()
             dlg.accept()
             # Refresh table
             filter_text = self.SearchBar.text()
-            category_filter = self.findChildren(QComboBox)[0]
-            cat_id = category_filter.currentData()
+            cat_id = self.category_filter.currentData()
             self.load_subcategories(filter_text, cat_id)
         save_btn.clicked.connect(save)
         dlg.exec_()
@@ -974,7 +979,7 @@ class Categories_SubCategories(QWidget):
         categories = Categoriesvalues()
         cat_combo = QComboBox()
         cat_combo.addItems(categories.get_names())
-        idx = cat_combo.findText(categories.get_by_id(sub["CategoryID"])["Name"])
+        idx = cat_combo.findText(categories.get_by_id(sub["category_id"])["Name"])
         if idx >= 0:
             cat_combo.setCurrentIndex(idx)
         name_input = QLineEdit(sub["Name"])
@@ -1002,14 +1007,13 @@ class Categories_SubCategories(QWidget):
             conn2 = get_db_connection()
             try:
                 cur2 = conn2.cursor()
-                cur2.execute("UPDATE Subcategories SET CategoryID=?, Name=?, Description=? WHERE SubCategoryID=?", (cat_id, name, desc, subcat_id))
+                cur2.execute("UPDATE Subcategories SET category_id=?, Name=?, Description=? WHERE SubCategoryID=?", (cat_id, name, desc, subcat_id))
                 conn2.commit()
             finally:
                 conn2.close()
             dlg.accept()
             filter_text = self.SearchBar.text()
-            category_filter = self.findChildren(QComboBox)[0]
-            cat_id = category_filter.currentData()
+            cat_id = self.category_filter.currentData()
             self.load_subcategories(filter_text, cat_id)
         save_btn.clicked.connect(save)
         dlg.exec_()
@@ -1025,20 +1029,8 @@ class Categories_SubCategories(QWidget):
             finally:
                 conn.close()
             filter_text = self.SearchBar.text()
-            category_filter = self.findChildren(QComboBox)[0]
-            cat_id = category_filter.currentData()
+            cat_id = self.category_filter.currentData()
             self.load_subcategories(filter_text, cat_id)
-
-        # Connect AddButton to add_subcategory
-        self.AddButton.clicked.connect(self.add_subcategory)
-
-        # Connect search and filter
-        category_filter = self.findChildren(QComboBox)[0]
-        category_filter.currentIndexChanged.connect(lambda: self.load_subcategories(self.SearchBar.text(), category_filter.currentData()))
-        self.SearchBar.textChanged.connect(lambda: self.load_subcategories(self.SearchBar.text(), category_filter.currentData()))
-
-        # Initial load
-        self.load_subcategories()
 
 class Program_Admnistration(QWidget):
     def __init__(self):
@@ -1080,21 +1072,10 @@ class Program_Admnistration(QWidget):
             font-family: Lato-light;
             """
         )
-        type_filter = QComboBox()
-        type_filter.addItems(["All", "Active", "Inactive"])
-        type_filter.setStyleSheet(FormStyles())
-        category_filter = QComboBox()
-        category_filter.setStyleSheet(FormStyles())
-        category_filter.addItems(["All", "Program", "Administration"])
         TableHeaderLayout.addWidget(TableTitleLabel)
         TableHeaderLayout.addStretch()
         TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
         TableHeaderLayout.addWidget(self.cancelButton)
-        TableHeaderLayout.addWidget(Filter)
-        TableHeaderLayout.addWidget(QLabel("Type:"))
-        TableHeaderLayout.addWidget(type_filter)
-        TableHeaderLayout.addWidget(QLabel("Category:"))
-        TableHeaderLayout.addWidget(category_filter)
         TableHeader.setLayout(TableHeaderLayout)
         Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
 
@@ -1102,25 +1083,168 @@ class Program_Admnistration(QWidget):
         TableofPrograms = QTableWidget()
         TableofPrograms.setStyleSheet(TableStyles())
         TableofPrograms.setColumnCount(4)
-        TableofPrograms.setHorizontalHeaderLabels(["Program/Admin", "Description", "Category", "Actions"])
+        TableofPrograms.setHorizontalHeaderLabels(["Program/Admin", "Description", "Manager", "Actions"])
         TableofPrograms.horizontalHeader().setStretchLastSection(True)
         TableofPrograms.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # Example row for UI demonstration
-        TableofPrograms.setRowCount(1)
-        TableofPrograms.setRowHeight(0, 45)
-        TableofPrograms.setItem(0, 0, QTableWidgetItem("Community Outreach"))
-        TableofPrograms.setItem(0, 1, QTableWidgetItem("Annual outreach program"))
-        TableofPrograms.setItem(0, 2, QTableWidgetItem("Program"))
-        action_widget = QWidget()
-        action_layout = QHBoxLayout()
-        edit_btn = TableButton("Edit")
-        delete_btn = TableButton("Delete")
-        action_layout.addWidget(edit_btn)
-        action_layout.addWidget(delete_btn)
-        action_layout.setContentsMargins(0, 0, 0, 0)
-        action_widget.setLayout(action_layout)
-        TableofPrograms.setCellWidget(0, 3, action_widget)
         Layout.addWidget(TableofPrograms)
+        # Store table and filters for later use
+        self.TableofPrograms = TableofPrograms
+
+        # Connect Add button
+        self.AddButton.clicked.connect(self.add_program)
+
+        # Connect search and filter
+        self.SearchBar.textChanged.connect(self.refresh_program_table)
+
+        # Initial load
+        self.refresh_program_table()
+
+    def refresh_program_table(self):
+        search_text = self.SearchBar.text().strip().lower()
+
+        query = "SELECT PA_Id, PA_Name, PA_Description, Manager FROM Program_administrations WHERE 1=1"
+        params = []
+        if search_text:
+            query += " AND (LOWER(PA_Name) LIKE ? OR LOWER(PA_Description) LIKE ? OR LOWER(Manager) LIKE ?)"
+            params.extend([f"%{search_text}%"] * 3)
+
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        table = self.TableofPrograms
+        table.setRowCount(0)
+        for row_idx, prog in enumerate(rows):
+            table.insertRow(row_idx)
+            table.setRowHeight(row_idx, 45)
+            table.setItem(row_idx, 0, QTableWidgetItem(prog["PA_Name"]))
+            table.setItem(row_idx, 1, QTableWidgetItem(prog["PA_Description"]))
+            table.setItem(row_idx, 2, QTableWidgetItem(prog["Manager"]))
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            edit_btn = TableButton("Edit")
+            delete_btn = TableButton("Delete")
+            action_layout.addWidget(edit_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_widget.setLayout(action_layout)
+            table.setCellWidget(row_idx, 3, action_widget)
+            edit_btn.clicked.connect(lambda _, pid=prog["PA_Id"]: self.edit_program(pid))
+            delete_btn.clicked.connect(lambda _, pid=prog["PA_Id"]: self.delete_program(pid))
+
+    def add_program(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Program/Admin")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        name_input = QLineEdit()
+        desc_input = QLineEdit()
+        manager_input = QLineEdit()
+        form.addRow("Name:", name_input)
+        form.addRow("Description:", desc_input)
+        form.addRow("Manager:", manager_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        def save():
+            name = name_input.text().strip()
+            desc = desc_input.text().strip()
+            manager = manager_input.text().strip()
+            if not name:
+                QMessageBox.warning(dlg, "Error", "Name is required.")
+                return
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO Program_administrations (PA_Name, PA_Description, Manager) VALUES (?, ?, ?)",
+                    (name, desc, manager)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            dlg.accept()
+            self.refresh_program_table()
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def edit_program(self, prog_id):
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM Program_administrations WHERE PA_Id=?", (prog_id,))
+            prog = cur.fetchone()
+        finally:
+            conn.close()
+        if not prog:
+            QMessageBox.warning(self, "Error", "Program/Admin not found.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Program/Admin")
+        dlg.setStyleSheet(DialogStyles())
+        lyt = QVBoxLayout(dlg)
+        form = QFormLayout()
+        name_input = QLineEdit(prog["PA_Name"])
+        desc_input = QLineEdit(prog["PA_Description"])
+        manager_input = QLineEdit(prog["Manager"])
+        form.addRow("Name:", name_input)
+        form.addRow("Description:", desc_input)
+        form.addRow("Manager:", manager_input)
+        lyt.addLayout(form)
+        btns = QHBoxLayout()
+        save_btn = button("Save", "primary", "sm")
+        cancel_btn = button("Cancel", "secondary", "sm")
+        btns.addStretch()
+        btns.addWidget(save_btn)
+        btns.addWidget(cancel_btn)
+        lyt.addLayout(btns)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        def save():
+            name = name_input.text().strip()
+            desc = desc_input.text().strip()
+            manager = manager_input.text().strip()
+            if not name:
+                QMessageBox.warning(dlg, "Error", "Name is required.")
+                return
+            conn2 = get_db_connection()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute(
+                    "UPDATE Program_administrations SET PA_Name=?, PA_Description=?, Manager=? WHERE PA_Id=?",
+                    (name, desc, manager,prog_id)
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
+            dlg.accept()
+            self.refresh_program_table()
+        save_btn.clicked.connect(save)
+        dlg.exec_()
+
+    def delete_program(self, prog_id):
+        reply = QMessageBox.question(self, "Delete", "Delete this program/admin?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM Program_administrations WHERE PA_Id=?", (prog_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            self.refresh_program_table()
 
 class Projects_Activities(QWidget):
     def __init__(self):
@@ -1162,47 +1286,566 @@ class Projects_Activities(QWidget):
             font-family: Lato-light;
             """
         )
-        type_filter = QComboBox()
-        type_filter.addItems(["All", "Active", "Inactive"])
-        type_filter.setStyleSheet(FormStyles())
-        category_filter = QComboBox()
-        category_filter.setStyleSheet(FormStyles())
-        category_filter.addItems(["All", "Project", "Activity"])
+        Program_adminstrator_filter = QComboBox()
+        # Populate Program_adminstrator_filter with Program Administrations (PA_Id, PA_Name)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+            programs = cur.fetchall()
+        finally:
+            conn.close()
+        Program_adminstrator_filter.addItem("All", None)
+        for prog in programs:
+            Program_adminstrator_filter.addItem(prog["PA_Name"], prog["PA_Id"])
+        Program_adminstrator_filter.setStyleSheet(FormStyles())
+        Projects_filter = QComboBox()
+        # Populate Projects_filter with Projects (ProjectID, ProjectName)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+            projects = cur.fetchall()
+        finally:
+            conn.close()
+        Projects_filter.addItem("All", None)
+        for proj in projects:
+            Projects_filter.addItem(proj["ProjectName"], proj["ProjectID"])
+        Projects_filter.setStyleSheet(FormStyles())
+        self.project_manage = outline_button("Manage Project", "info", "sm")
+        self.project_manage.clicked.connect(self.Project)
         TableHeaderLayout.addWidget(TableTitleLabel)
         TableHeaderLayout.addStretch()
         TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
         TableHeaderLayout.addWidget(self.cancelButton)
         TableHeaderLayout.addWidget(Filter)
-        TableHeaderLayout.addWidget(QLabel("Type:"))
-        TableHeaderLayout.addWidget(type_filter)
-        TableHeaderLayout.addWidget(QLabel("Category:"))
-        TableHeaderLayout.addWidget(category_filter)
+        TableHeaderLayout.addWidget(QLabel("Program:"))
+        TableHeaderLayout.addWidget(Program_adminstrator_filter)
+        TableHeaderLayout.addWidget(QLabel("Project:"))
+        TableHeaderLayout.addWidget(Projects_filter)
+        TableHeaderLayout.addWidget(self.project_manage)
+
         TableHeader.setLayout(TableHeaderLayout)
         Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
 
-        # Table of Projects & Activities
-        TableofProjects = QTableWidget()
-        TableofProjects.setStyleSheet(TableStyles())
-        TableofProjects.setColumnCount(4)
-        TableofProjects.setHorizontalHeaderLabels(["Project/Activity", "Description", "Category", "Actions"])
-        TableofProjects.horizontalHeader().setStretchLastSection(True)
-        TableofProjects.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # Example row for UI demonstration
-        TableofProjects.setRowCount(1)
-        TableofProjects.setRowHeight(0, 45)
-        TableofProjects.setItem(0, 0, QTableWidgetItem("Tree Planting"))
-        TableofProjects.setItem(0, 1, QTableWidgetItem("Annual tree planting activity"))
-        TableofProjects.setItem(0, 2, QTableWidgetItem("Activity"))
-        action_widget = QWidget()
-        action_layout = QHBoxLayout()
-        edit_btn = TableButton("Edit")
-        delete_btn = TableButton("Delete")
-        action_layout.addWidget(edit_btn)
-        action_layout.addWidget(delete_btn)
-        action_layout.setContentsMargins(0, 0, 0, 0)
-        action_widget.setLayout(action_layout)
-        TableofProjects.setCellWidget(0, 3, action_widget)
-        Layout.addWidget(TableofProjects)
+        # --- Activities CRUD Management (like Project management) ---
+        self.TableofActivities = QTableWidget()
+        self.TableofActivities.setStyleSheet(TableStyles())
+        self.TableofActivities.setColumnCount(6)
+        self.TableofActivities.setHorizontalHeaderLabels(["Activity", "Start Date", "End Date", "Project", "Program", "Actions"])
+        self.TableofActivities.horizontalHeader().setStretchLastSection(True)
+        self.TableofActivities.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)      
+        Layout.addWidget(self.TableofActivities)
+
+        def refresh_activities_table():
+            # Get filter values
+            search_text = self.SearchBar.text().strip().lower()
+            # Find the two QComboBox filters for Program and Project
+            combo_boxes = self.findChildren(QComboBox)
+            program_filter = None
+            project_filter = None
+            # The first QComboBox is Program, the second is Project (after SearchBar/cancelButton)
+            # Find by label text in TableHeaderLayout if needed, but here we assume order
+            if len(combo_boxes) >= 2:
+                # Use the named widgets directly
+                program_filter = Program_adminstrator_filter
+                project_filter = Projects_filter
+                program_id = program_filter.currentData() if program_filter else None
+                project_id = project_filter.currentData() if project_filter else None
+
+            query = """
+            SELECT a.ActivityID, a.ActivityName, a.ActivityStartDate, a.ActivityEndDate,
+                   p.ProjectName, pa.PA_Name, a.ProjectID
+            FROM Project_Activities a
+            LEFT JOIN Projects p ON a.ProjectID = p.ProjectID
+            LEFT JOIN Program_administrations pa ON p.ProgramID = pa.PA_Id
+            WHERE 1=1
+            """
+            params = []
+            if program_id:
+                query += " AND pa.PA_Id = ?"
+                params.append(program_id)
+            if project_id:
+                query += " AND p.ProjectID = ?"
+                params.append(project_id)
+            if search_text:
+                query += " AND (LOWER(a.ActivityName) LIKE ? OR LOWER(a.ActivityDescription) LIKE ? OR LOWER(p.ProjectName) LIKE ? OR LOWER(pa.PA_Name) LIKE ?)"
+                params.extend([f"%{search_text}%"] * 4)
+
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(query, params)
+                rows = cur.fetchall()
+            finally:
+                conn.close()
+            table = self.TableofActivities
+            table.setRowCount(0)
+            for row_idx, act in enumerate(rows):
+                table.insertRow(row_idx)
+                table.setRowHeight(row_idx, 45)
+                table.setItem(row_idx, 0, QTableWidgetItem(act["ActivityName"]))
+                table.setItem(row_idx, 1, QTableWidgetItem(act["ActivityStartDate"] or ""))
+                table.setItem(row_idx, 2, QTableWidgetItem(act["ActivityEndDate"] or ""))
+                table.setItem(row_idx, 3, QTableWidgetItem(act["ProjectName"] or ""))
+                table.setItem(row_idx, 4, QTableWidgetItem(act["PA_Name"] or ""))
+                action_widget = QWidget()
+                action_layout = QHBoxLayout()
+                edit_btn = TableButton("Edit")
+                delete_btn = TableButton("Delete")
+                action_layout.addWidget(edit_btn)
+                action_layout.addWidget(delete_btn)
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                action_widget.setLayout(action_layout)
+                table.setCellWidget(row_idx, 5, action_widget)
+                edit_btn.clicked.connect(lambda _, aid=act["ActivityID"]: edit_activity(aid))
+                delete_btn.clicked.connect(lambda _, aid=act["ActivityID"]: delete_activity(aid))
+
+            # Connect signals for live update if not already connected
+            try:
+                self.SearchBar.textChanged.disconnect()
+            except Exception:
+                pass
+            self.SearchBar.textChanged.connect(refresh_activities_table)
+            if program_filter:
+                try:
+                    program_filter.currentIndexChanged.disconnect()
+                except Exception:
+                    pass
+                program_filter.currentIndexChanged.connect(refresh_activities_table)
+            if project_filter:
+                try:
+                    project_filter.currentIndexChanged.disconnect()
+                except Exception:
+                    pass
+                project_filter.currentIndexChanged.connect(refresh_activities_table)
+                project_filter.currentIndexChanged.disconnect()
+                
+            project_filter.currentIndexChanged.connect(refresh_activities_table)
+
+        def add_activity():
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Add Activity")
+            dlg.setStyleSheet(DialogStyles())
+            lyt = QVBoxLayout(dlg)
+            form = QFormLayout()
+            name_input = QLineEdit()
+            desc_input = QLineEdit()
+            start_input = QDateEdit()
+            start_input.setCalendarPopup(True)
+            start_input.setDate(QDate.currentDate())
+            end_input = QDateEdit()
+            end_input.setCalendarPopup(True)
+            end_input.setDate(QDate.currentDate())
+            # Project ComboBox
+            project_combo = QComboBox()
+            project_list = []
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+                project_list = cur.fetchall()
+            finally:
+                conn.close()
+            project_combo.addItem("None", None)
+            for proj in project_list:
+                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+            form.addRow("Name:", name_input)
+            form.addRow("Description:", desc_input)
+            form.addRow("Start Date:", start_input)
+            form.addRow("End Date:", end_input)
+            form.addRow("Project:", project_combo)
+            lyt.addLayout(form)
+            btns = QHBoxLayout()
+            save_btn = button("Save", "primary", "sm")
+            cancel_btn = button("Cancel", "secondary", "sm")
+            btns.addStretch()
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            lyt.addLayout(btns)
+            cancel_btn.clicked.connect(dlg.reject)
+            def save():
+                name = name_input.text().strip()
+                desc = desc_input.text().strip()
+                start = start_input.date().toString("yyyy-MM-dd")
+                end = end_input.date().toString("yyyy-MM-dd")
+                proj_id = project_combo.currentData()
+                if not name or not proj_id:
+                    QMessageBox.warning(dlg, "Error", "Name and Project are required.")
+                    return
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO Project_Activities (ActivityName, ActivityDescription, ActivityStartDate, ActivityEndDate, ProjectID) VALUES (?, ?, ?, ?, ?)",
+                        (name, desc, start, end, proj_id)
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                dlg.accept()
+                refresh_activities_table()
+            save_btn.clicked.connect(save)
+            dlg.exec_()
+
+        def edit_activity(act_id):
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM Project_Activities WHERE ActivityID=?", (act_id,))
+                act = cur.fetchone()
+            finally:
+                conn.close()
+            if not act:
+                QMessageBox.warning(self, "Error", "Activity not found.")
+                return
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Edit Activity")
+            dlg.setStyleSheet(DialogStyles())
+            lyt = QVBoxLayout(dlg)
+            form = QFormLayout()
+            name_input = QLineEdit(act["ActivityName"])
+            desc_input = QLineEdit(act["ActivityDescription"] or "")
+            start_input = QDateEdit()
+            start_input.setCalendarPopup(True)
+            if act["ActivityStartDate"]:
+                start_input.setDate(QDate.fromString(act["ActivityStartDate"], "yyyy-MM-dd"))
+            else:
+                start_input.setDate(QDate.currentDate())
+            end_input = QDateEdit()
+            end_input.setCalendarPopup(True)
+            if act["ActivityEndDate"]:
+                end_input.setDate(QDate.fromString(act["ActivityEndDate"], "yyyy-MM-dd"))
+            else:
+                end_input.setDate(QDate.currentDate())
+            # Project ComboBox
+            project_combo = QComboBox()
+            project_list = []
+            conn2 = get_db_connection()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute("SELECT ProjectID, ProjectName FROM Projects")
+                project_list = cur2.fetchall()
+            finally:
+                conn2.close()
+            project_combo.addItem("None", None)
+            idx = 0
+            for i, proj in enumerate(project_list):
+                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+                if act["ProjectID"] == proj["ProjectID"]:
+                    idx = i + 1  # +1 because of "None"
+            project_combo.setCurrentIndex(idx)
+            form.addRow("Name:", name_input)
+            form.addRow("Description:", desc_input)
+            form.addRow("Start Date:", start_input)
+            form.addRow("End Date:", end_input)
+            form.addRow("Project:", project_combo)
+            lyt.addLayout(form)
+            btns = QHBoxLayout()
+            save_btn = button("Save", "primary", "sm")
+            cancel_btn = button("Cancel", "secondary", "sm")
+            btns.addStretch()
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            lyt.addLayout(btns)
+            cancel_btn.clicked.connect(dlg.reject)
+            def save():
+                name = name_input.text().strip()
+                desc = desc_input.text().strip()
+                start = start_input.date().toString("yyyy-MM-dd")
+                end = end_input.date().toString("yyyy-MM-dd")
+                proj_id = project_combo.currentData()
+                if not name or not proj_id:
+                    QMessageBox.warning(dlg, "Error", "Name and Project are required.")
+                    return
+                conn3 = get_db_connection()
+                try:
+                    cur3 = conn3.cursor()
+                    cur3.execute(
+                        "UPDATE Project_Activities SET ActivityName=?, ActivityDescription=?, ActivityStartDate=?, ActivityEndDate=?, ProjectID=? WHERE ActivityID=?",
+                        (name, desc, start, end, proj_id, act_id)
+                    )
+                    conn3.commit()
+                finally:
+                    conn3.close()
+                dlg.accept()
+                refresh_activities_table()
+            save_btn.clicked.connect(save)
+            dlg.exec_()
+
+        def delete_activity(act_id):
+            reply = QMessageBox.question(self, "Delete", "Delete this activity?", QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM Project_Activities WHERE ActivityID=?", (act_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+                refresh_activities_table()
+
+        # Add button for activities
+        self.AddButton.clicked.connect(add_activity)
+        refresh_activities_table()
+
+    # --- Projects CRUD Management (like Category in Categories_SubCategories) ---
+    def Project(self):
+        self.ProjectDialog = QDialog(self)
+        self.ProjectDialog.setWindowTitle("Manage Projects")
+        self.ProjectDialog.setMinimumWidth(600)
+        main_layout = QVBoxLayout(self.ProjectDialog)
+
+        # Title
+        title = QLabel("Project Management")
+        title.setAlignment(Qt.AlignHCenter)
+        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #1B263B; margin-bottom: 8px;")
+        main_layout.addWidget(title)
+
+        # Subtitle row: Subtitle (left), SearchBar + Add (right)
+        subtitle_row = QHBoxLayout()
+        subtitle = QLabel("Project List")
+        subtitle.setStyleSheet("font-size: 15px; font-weight: 600; color: #1B263B;")
+        subtitle_row.addWidget(subtitle, alignment=Qt.AlignLeft)
+        subtitle_row.addStretch()
+
+        searchbar = QLineEdit()
+        searchbar.setPlaceholderText("Search project...")
+        searchbar.setMinimumWidth(180)
+        searchbar.setStyleSheet(FormStyles())
+        subtitle_row.addWidget(searchbar)
+
+        add_btn = button("Add", "primary", "sm", icon_path="Icons/add.svg", icon_toolTip="Add Project")
+        subtitle_row.addWidget(add_btn)
+
+        main_layout.addLayout(subtitle_row)
+
+        # Table row
+        table = QTableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["Name", "Description", "Start Date", "End Date", "Program", "Actions"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.setStyleSheet(TableStyles())
+        main_layout.addWidget(table)
+
+        # --- CRUD logic for projects ---
+        def load_projects(filter_text=""):
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if filter_text:
+                    cur.execute("""
+                        SELECT p.ProjectID, p.ProjectName, p.ProjectDescription, p.ProjectStartDate, p.ProjectEndDate, pa.PA_Name
+                        FROM Projects p
+                        LEFT JOIN Program_administrations pa ON p.ProgramID = pa.PA_Id
+                        WHERE p.ProjectName LIKE ? OR p.ProjectDescription LIKE ? OR pa.PA_Name LIKE ?
+                    """, (f"%{filter_text}%", f"%{filter_text}%", f"%{filter_text}%"))
+                else:
+                    cur.execute("""
+                        SELECT p.ProjectID, p.ProjectName, p.ProjectDescription, p.ProjectStartDate, p.ProjectEndDate, pa.PA_Name
+                        FROM Projects p
+                        LEFT JOIN Program_administrations pa ON p.ProgramID = pa.PA_Id
+                    """)
+                rows = cur.fetchall()
+            finally:
+                conn.close()
+            table.setRowCount(0)
+            for row_idx, proj in enumerate(rows):
+                table.insertRow(row_idx)
+                table.setRowHeight(row_idx, 45)
+                table.setItem(row_idx, 0, QTableWidgetItem(proj["ProjectName"]))
+                table.setItem(row_idx, 1, QTableWidgetItem(proj["ProjectDescription"] or ""))
+                table.setItem(row_idx, 2, QTableWidgetItem(proj["ProjectStartDate"] or ""))
+                table.setItem(row_idx, 3, QTableWidgetItem(proj["ProjectEndDate"] or ""))
+                table.setItem(row_idx, 4, QTableWidgetItem(proj["PA_Name"] or ""))
+                # Actions
+                action_widget = QWidget()
+                action_layout = QHBoxLayout()
+                edit_btn = TableButton("Edit")
+                delete_btn = TableButton("Delete")
+                action_layout.addWidget(edit_btn)
+                action_layout.addWidget(delete_btn)
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                action_widget.setLayout(action_layout)
+                table.setCellWidget(row_idx, 5, action_widget)
+                edit_btn.clicked.connect(lambda _, pid=proj["ProjectID"]: edit_project(pid))
+                delete_btn.clicked.connect(lambda _, pid=proj["ProjectID"]: delete_project(pid))
+
+        def add_project():
+            dlg = QDialog(self.ProjectDialog)
+            dlg.setWindowTitle("Add Project")
+            dlg.setStyleSheet(DialogStyles())
+            lyt = QVBoxLayout(dlg)
+            form = QFormLayout()
+            name_input = QLineEdit()
+            desc_input = QLineEdit()
+            start_input = QDateEdit()
+            start_input.setCalendarPopup(True)
+            start_input.setDate(QDate.currentDate())
+            end_input = QDateEdit()
+            end_input.setCalendarPopup(True)
+            end_input.setDate(QDate.currentDate())
+            # Program ComboBox
+            program_combo = QComboBox()
+            program_list = []
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+                program_list = cur.fetchall()
+            finally:
+                conn.close()
+            program_combo.addItem("None", None)
+            for prog in program_list:
+                program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+            form.addRow("Name:", name_input)
+            form.addRow("Description:", desc_input)
+            form.addRow("Start Date:", start_input)
+            form.addRow("End Date:", end_input)
+            form.addRow("Program:", program_combo)
+            lyt.addLayout(form)
+            btns = QHBoxLayout()
+            save_btn = button("Save", "primary", "sm")
+            cancel_btn = button("Cancel", "secondary", "sm")
+            btns.addStretch()
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            lyt.addLayout(btns)
+            cancel_btn.clicked.connect(dlg.reject)
+            def save():
+                name = name_input.text().strip()
+                desc = desc_input.text().strip()
+                start = start_input.date().toString("yyyy-MM-dd")
+                end = end_input.date().toString("yyyy-MM-dd")
+                prog_id = program_combo.currentData()
+                if not name:
+                    QMessageBox.warning(dlg, "Error", "Name is required.")
+                    return
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO Projects (ProjectName, ProjectDescription, ProjectStartDate, ProjectEndDate, ProgramID) VALUES (?, ?, ?, ?, ?)",
+                        (name, desc, start, end, prog_id)
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                dlg.accept()
+                load_projects(searchbar.text())
+            save_btn.clicked.connect(save)
+            dlg.exec_()
+
+        def edit_project(proj_id):
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM Projects WHERE ProjectID=?", (proj_id,))
+                proj = cur.fetchone()
+            finally:
+                conn.close()
+            if not proj:
+                QMessageBox.warning(self.ProjectDialog, "Error", "Project not found.")
+                return
+            dlg = QDialog(self.ProjectDialog)
+            dlg.setWindowTitle("Edit Project")
+            dlg.setStyleSheet(DialogStyles())
+            lyt = QVBoxLayout(dlg)
+            form = QFormLayout()
+            name_input = QLineEdit(proj["ProjectName"])
+            desc_input = QLineEdit(proj["ProjectDescription"] or "")
+            start_input = QDateEdit()
+            start_input.setCalendarPopup(True)
+            if proj["ProjectStartDate"]:
+                start_input.setDate(QDate.fromString(proj["ProjectStartDate"], "yyyy-MM-dd"))
+            else:
+                start_input.setDate(QDate.currentDate())
+            end_input = QDateEdit()
+            end_input.setCalendarPopup(True)
+            if proj["ProjectEndDate"]:
+                end_input.setDate(QDate.fromString(proj["ProjectEndDate"], "yyyy-MM-dd"))
+            else:
+                end_input.setDate(QDate.currentDate())
+            # Program ComboBox
+            program_combo = QComboBox()
+            program_list = []
+            conn2 = get_db_connection()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+                program_list = cur2.fetchall()
+            finally:
+                conn2.close()
+            program_combo.addItem("None", None)
+            idx = 0
+            for i, prog in enumerate(program_list):
+                program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+                if proj["ProgramID"] == prog["PA_Id"]:
+                    idx = i + 1  # +1 because of "None"
+            program_combo.setCurrentIndex(idx)
+            form.addRow("Name:", name_input)
+            form.addRow("Description:", desc_input)
+            form.addRow("Start Date:", start_input)
+            form.addRow("End Date:", end_input)
+            form.addRow("Program:", program_combo)
+            lyt.addLayout(form)
+            btns = QHBoxLayout()
+            save_btn = button("Save", "primary", "sm")
+            cancel_btn = button("Cancel", "secondary", "sm")
+            btns.addStretch()
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            lyt.addLayout(btns)
+            cancel_btn.clicked.connect(dlg.reject)
+            def save():
+                name = name_input.text().strip()
+                desc = desc_input.text().strip()
+                start = start_input.date().toString("yyyy-MM-dd")
+                end = end_input.date().toString("yyyy-MM-dd")
+                prog_id = program_combo.currentData()
+                if not name:
+                    QMessageBox.warning(dlg, "Error", "Name is required.")
+                    return
+                conn3 = get_db_connection()
+                try:
+                    cur3 = conn3.cursor()
+                    cur3.execute(
+                        "UPDATE Projects SET ProjectName=?, ProjectDescription=?, ProjectStartDate=?, ProjectEndDate=?, ProgramID=? WHERE ProjectID=?",
+                        (name, desc, start, end, prog_id, proj_id)
+                    )
+                    conn3.commit()
+                finally:
+                    conn3.close()
+                dlg.accept()
+                load_projects(searchbar.text())
+            save_btn.clicked.connect(save)
+            dlg.exec_()
+
+        def delete_project(proj_id):
+            reply = QMessageBox.question(self.ProjectDialog, "Delete", "Delete this project?", QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM Projects WHERE ProjectID=?", (proj_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+                load_projects(searchbar.text())
+
+        # Connect signals
+        add_btn.clicked.connect(add_project)
+        searchbar.textChanged.connect(lambda: load_projects(searchbar.text()))
+
+        # Initial load
+        load_projects()
+
+        self.ProjectDialog.setLayout(main_layout)
+        self.ProjectDialog.exec_()
+    
+
+
 # Styles and General Design
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
