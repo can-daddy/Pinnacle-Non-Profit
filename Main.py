@@ -217,9 +217,9 @@ class DonorsPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Donors")
-        self.AddButton = button("Add","primary","md",icon_path="Icons/add.svg",icon_toolTip="Add New Donor")
+        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Donor")
         self.AddButton.clicked.connect(self.DonorForm)
-        self.ExportButton = button("Export","success","md",icon_path="Icons/print.svg",icon_toolTip="Export as Pdf")
+        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
         ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -237,8 +237,8 @@ class DonorsPage(QWidget):
         self.SearchBar.setStyleSheet(FormStyles())
         self.cancelButton = QPushButton()
         self.cancelButton.setFlat(True)
-        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))  # Put your icon in Icons/cancel.svg
-        self.cancelButton.setIconSize(QSize(16, 16))  # Increased size
+        self.cancelButton.setIcon(QIcon("Icons/cancel.svg"))
+        self.cancelButton.setIconSize(QSize(16, 16))
         self.cancelButton.setToolTip("Cancel")
         self.cancelButton.setVisible(False)
         Filter = QLabel("Filter:")
@@ -246,43 +246,43 @@ class DonorsPage(QWidget):
             color: #1B263B;
             font-size: 12px;
             font-family: Lato-light;
-            """
-            )
-        type_filter = QComboBox()
-        type_filter.addItems(["Individual", "Government", "Organization", "Events Contribution", "Other"])
-        type_filter.setStyleSheet(FormStyles())
-        category_filter = QComboBox()
-        category_filter.setStyleSheet(FormStyles())
-        category_filter.addItems(["Regular", "Permanent", "Partnership", "Occasional", "Other"])
+        """)
+        self.type_filter = QComboBox()
+        self.type_filter.addItem("All")
+        self.type_filter.addItems(["Individual", "Government", "Organization", "Events Contribution", "Other"])
+        self.type_filter.setStyleSheet(FormStyles())
+        self.category_filter = QComboBox()
+        self.category_filter.addItem("All")
+        self.category_filter.addItems(["Regular", "Permanent", "Partnership", "Occasional", "Other"])
+        self.category_filter.setStyleSheet(FormStyles())
         TableHeaderLayout.addWidget(DonorTableTitle)
         TableHeaderLayout.addStretch()
         TableHeaderLayout.addWidget(self.SearchBar, alignment=Qt.AlignRight)
         TableHeaderLayout.addWidget(self.cancelButton)
         TableHeaderLayout.addWidget(Filter)
         TableHeaderLayout.addWidget(QLabel("Type:"))
-        TableHeaderLayout.addWidget(type_filter)
+        TableHeaderLayout.addWidget(self.type_filter)
         TableHeaderLayout.addWidget(QLabel("Category:"))
-        TableHeaderLayout.addWidget(category_filter)
+        TableHeaderLayout.addWidget(self.category_filter)
         TableHeader.setLayout(TableHeaderLayout)
         Layout.addWidget(TableHeader, alignment=Qt.AlignTop)
         # Table of Donors
-        TableofDonors = QTableWidget()
-        TableofDonors.setStyleSheet(TableStyles())
-        TableofDonors.setColumnCount(7)
-        TableofDonors.setHorizontalHeaderLabels(["Name", "Address","Contact","Type", "Category", "Date Joined", "Actions"])
-        TableofDonors.horizontalHeader().setStretchLastSection(True)
-        TableofDonors.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        EditBtn = TableButton("Edit")
-        DeleteBtn = TableButton("Delete")
-        Actionbuttons = QWidget()
-        ActionbtnsLyt = QHBoxLayout()
-        ActionbtnsLyt.addWidget(EditBtn)
-        ActionbtnsLyt.addWidget(DeleteBtn)
-        Actionbuttons.setLayout(ActionbtnsLyt)
-        TableofDonors.setCellWidget(0, 4, Actionbuttons)
-        TableHeaderLayout.addWidget(TableofDonors)
-        Layout.addWidget(TableofDonors)
-    
+        self.TableofDonors = QTableWidget()
+        self.TableofDonors.setStyleSheet(TableStyles())
+        self.TableofDonors.setColumnCount(7)
+        self.TableofDonors.setHorizontalHeaderLabels(["Name", "Address", "Contact", "Type", "Category", "Date Joined", "Actions"])
+        self.TableofDonors.horizontalHeader().setStretchLastSection(True)
+        self.TableofDonors.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        Layout.addWidget(self.TableofDonors)
+
+        # Connect search and filter
+        self.SearchBar.textChanged.connect(self.refresh_donor_table)
+        self.type_filter.currentIndexChanged.connect(self.refresh_donor_table)
+        self.category_filter.currentIndexChanged.connect(self.refresh_donor_table)
+
+        # Initial load
+        self.refresh_donor_table()
+
     def DonorForm(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("Register New Donor")
@@ -345,7 +345,6 @@ class DonorsPage(QWidget):
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
-        # Validation and Save logic
         def save():
             name = name_input.text().strip()
             address = address_input.text().strip()
@@ -363,13 +362,13 @@ class DonorsPage(QWidget):
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
-                cur.execute("SELECT 1 FROM Donors WHERE Contact = ?", (contact,))
+                cur.execute("SELECT 1 FROM Donors WHERE contact = ?", (contact,))
                 if cur.fetchone():
                     QMessageBox.warning(dialog, "Validation Error", "Contact must be unique. This contact already exists.")
                     return
-                # Insert into Donors (Name, Address, Contact, Donor_Type, Donor_Category, Date_Joined)
+                # Insert into Donors (Name, address, contact, Donor_Type, Donor_Category, Date_Joined)
                 cur.execute("""
-                    INSERT INTO Donors (Name, Address, Contact, Donor_Type, Donor_Category, Date_Joined)
+                    INSERT INTO Donors (Name, address, contact, Donor_Type, Donor_Category, Date_Joined)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (name, address, contact, donor_type, category, date))
                 conn.commit()
@@ -384,39 +383,7 @@ class DonorsPage(QWidget):
 
         dialog.setLayout(layout)
         dialog.exec_()
-    
-    def insert_donor(self, firstname, lastname, address, contact, donor_type, category, date_joined):
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO Donors (firstname, lastname, address, contact, Donor_Type,Donor_Category, Date_Joined)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (firstname, lastname, address, contact, donor_type, category, date_joined))
-            conn.commit()
-        finally:
-            conn.close()
-        QMessageBox.information(self, "Success", "Donor added successfully!")
-    
- 
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.refresh_donor_table()
 
-    def insert_donor(self, firstname, lastname, address, contact, donor_type, category, date_joined):
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO Donors (firstname, lastname, address, contact, Donor_Type,Donor_Category, Date_Joined)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (firstname, lastname, address, contact, donor_type, category, date_joined))
-            conn.commit()
-        finally:
-            conn.close()
-        QMessageBox.information(self, "Success", "Donor added successfully!")
-        self.refresh_donor_table()
-    
     def edit_donor(self, donor_id):
         conn = get_db_connection()
         try:
@@ -443,10 +410,8 @@ class DonorsPage(QWidget):
         form.setHorizontalSpacing(20)
         form.setVerticalSpacing(12)
 
-        firstname_input = QLineEdit(donor["firstname"])
-        form.addRow("Firstname:", firstname_input)
-        lastname_input = QLineEdit(donor["lastname"])
-        form.addRow("Lastname:", lastname_input)
+        name_input = QLineEdit(donor["Name"])
+        form.addRow("Name:", name_input)
         address_input = QLineEdit(donor["address"])
         form.addRow("Address:", address_input)
         contact_input = QLineEdit(donor["contact"])
@@ -498,11 +463,10 @@ class DonorsPage(QWidget):
             try:
                 cur2 = conn2.cursor()
                 cur2.execute("""
-                    UPDATE Donors SET firstname=?, lastname=?, address=?, contact=?, Donor_Type=?, Donor_Category=?, Date_Joined=?
+                    UPDATE Donors SET Name=?, address=?, contact=?, Donor_Type=?, Donor_Category=?, Date_Joined=?
                     WHERE DonorID=?
                 """, (
-                    firstname_input.text(),
-                    lastname_input.text(),
+                    name_input.text(),
                     address_input.text(),
                     contact_input.text(),
                     type_combo.currentText(),
@@ -541,18 +505,11 @@ class DonorsPage(QWidget):
     def refresh_donor_table(self):
         # Get filter values
         search_text = self.SearchBar.text().strip().lower()
-        type_filter = self.findChild(QComboBox, None).currentText() if self.findChildren(QComboBox) else "All"
-        # The first QComboBox is Type, the second is Category
-        combo_boxes = self.findChildren(QComboBox)
-        if len(combo_boxes) >= 2:
-            type_filter = combo_boxes[0].currentText()
-            category_filter = combo_boxes[1].currentText()
-        else:
-            type_filter = "All"
-            category_filter = "All"
+        type_filter = self.type_filter.currentText()
+        category_filter = self.category_filter.currentText()
 
         # Build SQL query dynamically
-        query = "SELECT DonorID, firstname, lastname, address, contact, Donor_Type, Donor_Category, Date_Joined FROM Donors WHERE 1=1"
+        query = "SELECT DonorID, Name, address, contact, Donor_Type, Donor_Category, Date_Joined FROM Donors WHERE 1=1"
         params = []
 
         if type_filter != "All":
@@ -562,8 +519,8 @@ class DonorsPage(QWidget):
             query += " AND Donor_Category = ?"
             params.append(category_filter)
         if search_text:
-            query += " AND (LOWER(firstname) LIKE ? OR LOWER(lastname) LIKE ? OR LOWER(address) LIKE ? OR LOWER(contact) LIKE ?)"
-            params.extend([f"%{search_text}%"] * 4)
+            query += " AND (LOWER(Name) LIKE ? OR LOWER(address) LIKE ? OR LOWER(contact) LIKE ?)"
+            params.extend([f"%{search_text}%"] * 3)
 
         conn = get_db_connection()
         try:
@@ -573,15 +530,12 @@ class DonorsPage(QWidget):
         finally:
             conn.close()
 
-        table = self.findChild(QTableWidget)
-        if not table:
-            return
-
+        table = self.TableofDonors
         table.setRowCount(0)
         for row_idx, donor in enumerate(donors):
             table.insertRow(row_idx)
             table.setRowHeight(row_idx, 45)
-            name = f"{donor['firstname']} {donor['lastname']}"
+            name = donor['Name']
             table.setItem(row_idx, 0, QTableWidgetItem(name))
             table.setItem(row_idx, 1, QTableWidgetItem(donor['address']))
             table.setItem(row_idx, 2, QTableWidgetItem(donor['contact']))
@@ -601,16 +555,6 @@ class DonorsPage(QWidget):
 
             edit_btn.clicked.connect(lambda _, did=donor['DonorID']: self.edit_donor(did))
             delete_btn.clicked.connect(lambda _, did=donor['DonorID']: self.delete_donor(did))
-
-        # Connect signals for live update if not already connected
-        self.SearchBar.textChanged.disconnect()
-        self.SearchBar.textChanged.connect(self.refresh_donor_table)
-        for combo in combo_boxes:
-            try:
-                combo.currentIndexChanged.disconnect()
-            except Exception:
-                pass
-            combo.currentIndexChanged.connect(self.refresh_donor_table)
 
 class Categoriesvalues():
     def __init__(self):
@@ -832,15 +776,24 @@ class Categories_SubCategories(QWidget):
                 if not name:
                     QMessageBox.warning(dlg, "Error", "Name is required.")
                     return
+                # Validate uniqueness of category name
                 conn = get_db_connection()
                 try:
                     cur = conn.cursor()
+                    cur.execute("SELECT 1 FROM Categories WHERE Name = ?", (name,))
+                    if cur.fetchone():
+                        QMessageBox.warning(dlg, "Error", "Category name must be unique. This name already exists.")
+                        return
                     cur.execute("INSERT INTO Categories (Name, Description) VALUES (?, ?)", (name, desc))
                     conn.commit()
+                except sqlite3.IntegrityError as e:
+                    # Handle unique constraint error (sqlite_autoindex_Categories_1)
+                    QMessageBox.warning(dlg, "Error", "Category name must be unique. This name already exists.")
+                    return
                 finally:
                     conn.close()
-                dlg.accept()
-                load_categories(searchbar.text())
+                    dlg.accept()
+                    load_categories(searchbar.text())
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -879,11 +832,19 @@ class Categories_SubCategories(QWidget):
                 if not name:
                     QMessageBox.warning(dlg, "Error", "Name is required.")
                     return
+                # Validate uniqueness of category name (excluding current)
                 conn2 = get_db_connection()
                 try:
                     cur2 = conn2.cursor()
+                    cur2.execute("SELECT 1 FROM Categories WHERE Name = ? AND CategoryID != ?", (name, cat_id))
+                    if cur2.fetchone():
+                        QMessageBox.warning(dlg, "Error", "Category name must be unique. This name already exists.")
+                        return
                     cur2.execute("UPDATE Categories SET Name=?, Description=? WHERE CategoryID=?", (name, desc, cat_id))
                     conn2.commit()
+                except sqlite3.IntegrityError:
+                    QMessageBox.warning(dlg, "Error", "Category name must be unique. This name already exists.")
+                    return
                 finally:
                     conn2.close()
                 dlg.accept()
@@ -987,11 +948,19 @@ class Categories_SubCategories(QWidget):
             if not name:
                 QMessageBox.warning(dlg, "Error", "Name is required.")
                 return
+            # Validation: unique subcategory name within the same category
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
-                cur.execute("INSERT INTO Subcategories (Name, Description, CategoryID) VALUES (?, ?, ?)", (name, desc, cat_id))
+                cur.execute("SELECT 1 FROM Subcategories WHERE Name = ? AND category_id = ?", (name, cat_id))
+                if cur.fetchone():
+                    QMessageBox.warning(dlg, "Error", "This subcategory already exists in the selected category.")
+                    return
+                cur.execute("INSERT INTO Subcategories (Name, Description, category_id) VALUES (?, ?, ?)", (name, desc, cat_id))
                 conn.commit()
+            except sqlite3.IntegrityError:
+                QMessageBox.warning(dlg, "Error", "This subcategory already exists in the selected category.")
+                return
             finally:
                 conn.close()
             dlg.accept()
@@ -1046,11 +1015,22 @@ class Categories_SubCategories(QWidget):
             if not name:
                 QMessageBox.warning(dlg, "Error", "Name is required.")
                 return
+            # Validation: unique subcategory name within the same category, excluding current subcategory
             conn2 = get_db_connection()
             try:
                 cur2 = conn2.cursor()
+                cur2.execute(
+                    "SELECT 1 FROM Subcategories WHERE Name = ? AND category_id = ? AND SubCategoryID != ?",
+                    (name, cat_id, subcat_id)
+                )
+                if cur2.fetchone():
+                    QMessageBox.warning(dlg, "Error", "This subcategory already exists in the selected category.")
+                    return
                 cur2.execute("UPDATE Subcategories SET category_id=?, Name=?, Description=? WHERE SubCategoryID=?", (cat_id, name, desc, subcat_id))
                 conn2.commit()
+            except sqlite3.IntegrityError:
+                QMessageBox.warning(dlg, "Error", "This subcategory already exists in the selected category.")
+                return
             finally:
                 conn2.close()
             dlg.accept()
@@ -1207,9 +1187,14 @@ class Program_Admnistration(QWidget):
             if not name:
                 QMessageBox.warning(dlg, "Error", "Name is required.")
                 return
+            # Unique validation for PA_Name
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
+                cur.execute("SELECT 1 FROM Program_administrations WHERE PA_Name = ?", (name,))
+                if cur.fetchone():
+                    QMessageBox.warning(dlg, "Error", "A Program/Admin with this name already exists.")
+                    return
                 cur.execute(
                     "INSERT INTO Program_administrations (PA_Name, PA_Description, Manager) VALUES (?, ?, ?)",
                     (name, desc, manager)
@@ -1261,12 +1246,20 @@ class Program_Admnistration(QWidget):
             if not name:
                 QMessageBox.warning(dlg, "Error", "Name is required.")
                 return
+            # Unique validation for PA_Name (excluding current record)
             conn2 = get_db_connection()
             try:
                 cur2 = conn2.cursor()
                 cur2.execute(
+                    "SELECT 1 FROM Program_administrations WHERE PA_Name = ? AND PA_Id != ?",
+                    (name, prog_id)
+                )
+                if cur2.fetchone():
+                    QMessageBox.warning(dlg, "Error", "A Program/Admin with this name already exists.")
+                    return
+                cur2.execute(
                     "UPDATE Program_administrations SET PA_Name=?, PA_Description=?, Manager=? WHERE PA_Id=?",
-                    (name, desc, manager,prog_id)
+                    (name, desc, manager, prog_id)
                 )
                 conn2.commit()
             finally:
@@ -1515,14 +1508,25 @@ class Projects_Activities(QWidget):
                 if not name or not proj_id:
                     QMessageBox.warning(dlg, "Error", "Name and Project are required.")
                     return
+                # Unique validation: ActivityName must be unique within the same ProjectID
                 conn = get_db_connection()
                 try:
                     cur = conn.cursor()
+                    cur.execute(
+                        "SELECT 1 FROM Project_Activities WHERE ActivityName = ? AND ProjectID = ?",
+                        (name, proj_id)
+                    )
+                    if cur.fetchone():
+                        QMessageBox.warning(dlg, "Error", "This activity already exists in the selected project.")
+                        return
                     cur.execute(
                         "INSERT INTO Project_Activities (ActivityName, ActivityDescription, ActivityStartDate, ActivityEndDate, ProjectID) VALUES (?, ?, ?, ?, ?)",
                         (name, desc, start, end, proj_id)
                     )
                     conn.commit()
+                except sqlite3.IntegrityError:
+                    QMessageBox.warning(dlg, "Error", "This activity already exists in the selected project.")
+                    return
                 finally:
                     conn.close()
                 dlg.accept()
@@ -1600,14 +1604,25 @@ class Projects_Activities(QWidget):
                 if not name or not proj_id:
                     QMessageBox.warning(dlg, "Error", "Name and Project are required.")
                     return
+                # Unique validation: ActivityName must be unique within the same ProjectID, excluding current activity
                 conn3 = get_db_connection()
                 try:
                     cur3 = conn3.cursor()
+                    cur3.execute(
+                        "SELECT 1 FROM Project_Activities WHERE ActivityName = ? AND ProjectID = ? AND ActivityID != ?",
+                        (name, proj_id, act_id)
+                    )
+                    if cur3.fetchone():
+                        QMessageBox.warning(dlg, "Error", "This activity already exists in the selected project.")
+                        return
                     cur3.execute(
                         "UPDATE Project_Activities SET ActivityName=?, ActivityDescription=?, ActivityStartDate=?, ActivityEndDate=?, ProjectID=? WHERE ActivityID=?",
                         (name, desc, start, end, proj_id, act_id)
                     )
                     conn3.commit()
+                except sqlite3.IntegrityError:
+                    QMessageBox.warning(dlg, "Error", "This activity already exists in the selected project.")
+                    return
                 finally:
                     conn3.close()
                 dlg.accept()
@@ -1631,7 +1646,7 @@ class Projects_Activities(QWidget):
         self.AddButton.clicked.connect(add_activity)
         refresh_activities_table()
 
-    # --- Projects CRUD Management (like Category in Categories_SubCategories) ---
+    # --- Projects CRUD Management ---
     def Project(self):
         self.ProjectDialog = QDialog(self)
         self.ProjectDialog.setWindowTitle("Manage Projects")
@@ -1764,14 +1779,28 @@ class Projects_Activities(QWidget):
                 if not name:
                     QMessageBox.warning(dlg, "Error", "Name is required.")
                     return
+                if not prog_id:
+                    QMessageBox.warning(dlg, "Error", "Program is required.")
+                    return
+                # Validate uniqueness of ProjectName within the selected ProgramID
                 conn = get_db_connection()
                 try:
                     cur = conn.cursor()
+                    cur.execute(
+                        "SELECT 1 FROM Projects WHERE ProjectName = ? AND ProgramID = ?",
+                        (name, prog_id)
+                    )
+                    if cur.fetchone():
+                        QMessageBox.warning(dlg, "Error", "A project with this name already exists in the selected program.")
+                        return
                     cur.execute(
                         "INSERT INTO Projects (ProjectName, ProjectDescription, ProjectStartDate, ProjectEndDate, ProgramID) VALUES (?, ?, ?, ?, ?)",
                         (name, desc, start, end, prog_id)
                     )
                     conn.commit()
+                except sqlite3.IntegrityError:
+                    QMessageBox.warning(dlg, "Error", "A project with this name already exists in the selected program.")
+                    return
                 finally:
                     conn.close()
                 dlg.accept()
@@ -1849,14 +1878,28 @@ class Projects_Activities(QWidget):
                 if not name:
                     QMessageBox.warning(dlg, "Error", "Name is required.")
                     return
+                if not prog_id:
+                    QMessageBox.warning(dlg, "Error", "Program is required.")
+                    return
+                # Validate uniqueness of ProjectName within the selected ProgramID, excluding current project
                 conn3 = get_db_connection()
                 try:
                     cur3 = conn3.cursor()
+                    cur3.execute(
+                        "SELECT 1 FROM Projects WHERE ProjectName = ? AND ProgramID = ? AND ProjectID != ?",
+                        (name, prog_id, proj_id)
+                    )
+                    if cur3.fetchone():
+                        QMessageBox.warning(dlg, "Error", "A project with this name already exists in the selected program.")
+                        return
                     cur3.execute(
                         "UPDATE Projects SET ProjectName=?, ProjectDescription=?, ProjectStartDate=?, ProjectEndDate=?, ProgramID=? WHERE ProjectID=?",
                         (name, desc, start, end, prog_id, proj_id)
                     )
                     conn3.commit()
+                except sqlite3.IntegrityError:
+                    QMessageBox.warning(dlg, "Error", "A project with this name already exists in the selected program.")
+                    return
                 finally:
                     conn3.close()
                 dlg.accept()
