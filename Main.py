@@ -1938,8 +1938,9 @@ class TransactionsPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Transactions")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Transaction")
+        self.AddButton = button("Expenses", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Expenses Transaction")
         self.AddButton.clicked.connect(self.add_transaction)
+        # self.Income = button(I)
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -2145,485 +2146,6 @@ class TransactionsPage(QWidget):
             edit_btn.clicked.connect(lambda _, tid=tx["TransactionID"]: self.edit_transaction(tid))
             delete_btn.clicked.connect(lambda _, tid=tx["TransactionID"]: self.delete_transaction(tid))
     
-    def add_transaction(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Transaction")
-        dlg.setStyleSheet(DialogStyles())
-        lyt = QVBoxLayout(dlg)
-        form = QFormLayout()
-
-        # Date
-        date_input = QDateEdit()
-        date_input.setCalendarPopup(True)
-        date_input.setDate(QDate.currentDate())
-        form.addRow("Date:", date_input)
-
-        # Fiscal Year (BudgetYear)
-        fiscal_year_input = QSpinBox()
-        fiscal_year_input.setMinimum(1900)
-        fiscal_year_input.setMaximum(2100)
-        fiscal_year_input.setValue(QDate.currentDate().year())
-        form.addRow("Fiscal Year:", fiscal_year_input)
-
-        # Type
-        type_combo = QComboBox()
-        type_combo.addItems(["Income", "Expense"])
-        form.addRow("Type:", type_combo)
-
-        # Amount
-        amount_input = QLineEdit()
-        amount_input.setValidator(QDoubleValidator(0, 1e12, 2))
-        form.addRow("Amount:", amount_input)
-
-        # Program
-        program_combo = QComboBox()
-        program_combo.addItem("None", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
-            programs = cur.fetchall()
-        finally:
-            conn.close()
-        for prog in programs:
-            program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
-        form.addRow("Program:", program_combo)
-
-        # Project (filtered by program)
-        project_combo = QComboBox()
-        project_combo.addItem("None", None)
-        def update_projects():
-            project_combo.blockSignals(True)
-            project_combo.clear()
-            project_combo.addItem("None", None)
-            prog_id = program_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if prog_id:
-                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
-                else:
-                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
-                projects = cur.fetchall()
-            finally:
-                conn.close()
-            for proj in projects:
-                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
-            project_combo.blockSignals(False)
-        update_projects()
-        program_combo.currentIndexChanged.connect(update_projects)
-        form.addRow("Project:", project_combo)
-
-        # Activity (filtered by project)
-        activity_combo = QComboBox()
-        activity_combo.addItem("None", None)
-        def update_activities():
-            activity_combo.blockSignals(True)
-            activity_combo.clear()
-            activity_combo.addItem("None", None)
-            proj_id = project_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if proj_id:
-                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities WHERE ProjectID=?", (proj_id,))
-                else:
-                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities")
-                acts = cur.fetchall()
-            finally:
-                conn.close()
-            for act in acts:
-                activity_combo.addItem(act["ActivityName"], act["ActivityID"])
-            activity_combo.blockSignals(False)
-        update_activities()
-        project_combo.currentIndexChanged.connect(update_activities)
-        form.addRow("Activity:", activity_combo)
-
-        # Reference
-        reference_input = QLineEdit()
-        form.addRow("Reference:", reference_input)
-
-        # Description
-        description_input = QLineEdit()
-        form.addRow("Description:", description_input)
-
-        # Category (for subcategory navigation)
-        category_combo = QComboBox()
-        category_combo.addItem("None", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT CategoryID, Name FROM Categories")
-            cats = cur.fetchall()
-        finally:
-            conn.close()
-        for cat in cats:
-            category_combo.addItem(cat["Name"], cat["CategoryID"])
-        form.addRow("Category:", category_combo)
-
-        # Subcategory (filtered by category)
-        subcategory_combo = QComboBox()
-        subcategory_combo.addItem("None", None)
-        def update_subcategories():
-            subcategory_combo.blockSignals(True)
-            subcategory_combo.clear()
-            subcategory_combo.addItem("None", None)
-            cat_id = category_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if cat_id:
-                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories WHERE category_id=?", (cat_id,))
-                else:
-                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories")
-                subs = cur.fetchall()
-            finally:
-                conn.close()
-            for sub in subs:
-                subcategory_combo.addItem(sub["Name"], sub["SubCategoryID"])
-            subcategory_combo.blockSignals(False)
-        update_subcategories()
-        category_combo.currentIndexChanged.connect(update_subcategories)
-        form.addRow("Subcategory:", subcategory_combo)
-
-        # Logic: Disable Activity, Category, Subcategory if Income is selected
-        def update_fields_for_type():
-            is_income = type_combo.currentText() == "Income"
-            activity_combo.setEnabled(not is_income)
-            category_combo.setEnabled(not is_income)
-            subcategory_combo.setEnabled(not is_income)
-        type_combo.currentIndexChanged.connect(update_fields_for_type)
-        update_fields_for_type()
-
-        lyt.addLayout(form)
-        btns = QHBoxLayout()
-        save_btn = button("Save", "primary", "sm")
-        cancel_btn = button("Cancel", "secondary", "sm")
-        btns.addStretch()
-        btns.addWidget(save_btn)
-        btns.addWidget(cancel_btn)
-        lyt.addLayout(btns)
-        cancel_btn.clicked.connect(dlg.reject)
-
-        def save():
-            date = date_input.date().toString("yyyy-MM-dd")
-            fiscal_year = fiscal_year_input.value()
-            ttype = type_combo.currentText()
-            try:
-                amount = float(amount_input.text())
-            except Exception:
-                QMessageBox.warning(dlg, "Error", "Amount is required and must be a number.")
-                return
-            program_id = program_combo.currentData()
-            project_id = project_combo.currentData()
-            activity_id = activity_combo.currentData() if not (ttype == "Income") else None
-            reference = reference_input.text().strip()
-            desc = description_input.text().strip()
-            subcat_id = subcategory_combo.currentData() if not (ttype == "Income") else None
-
-            # Validation
-            if not date or not ttype or not amount or not fiscal_year:
-                QMessageBox.warning(dlg, "Error", "Date, Type, Amount, and Fiscal Year are required.")
-                return
-            if ttype == "Expense" and not subcat_id:
-                QMessageBox.warning(dlg, "Error", "Subcategory is required for Expense.")
-                return
-
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO Transactions
-                    (TransactionDate, BudgetYear, TransactionType, Amount, ProgramID, ProjectID, ActivityID, Reference, Description, SubCategories)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (date, fiscal_year, ttype, amount, program_id, project_id, activity_id, reference, desc, subcat_id))
-                conn.commit()
-                transaction_id = cur.lastrowid
-            finally:
-                conn.close()
-            dlg.accept()
-            self.refresh_transaction_table()
-            if ttype == "Income":
-                self.add_fund_after_income(transaction_id)
-
-        save_btn.clicked.connect(save)
-        dlg.exec_()
-
-    def add_fund_after_income(self, transaction_id):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Fund for Income Transaction")
-        dlg.setStyleSheet(DialogStyles())
-        lyt = QVBoxLayout(dlg)
-        form = QFormLayout()
-        name_input = QLineEdit()
-        # TransactionID (readonly)
-        tid_label = QLabel(str(transaction_id))
-        # Donor ComboBox
-        donor_combo = QComboBox()
-        donor_combo.addItem("None", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT DonorID, firstname, lastname FROM Donors")
-            donors = cur.fetchall()
-        finally:
-            conn.close()
-        for d in donors:
-            donor_combo.addItem(f"{d['firstname']} {d['lastname']}", d["DonorID"])
-        fundtype_input = QLineEdit()
-        form.addRow("Fund Name:", name_input)
-        form.addRow("Transaction ID:", tid_label)
-        form.addRow("Donor:", donor_combo)
-        form.addRow("Fund Type:", fundtype_input)
-        lyt.addLayout(form)
-        btns = QHBoxLayout()
-        save_btn = button("Save", "primary", "sm")
-        cancel_btn = button("Cancel", "secondary", "sm")
-        btns.addStretch()
-        btns.addWidget(save_btn)
-        btns.addWidget(cancel_btn)
-        lyt.addLayout(btns)
-        cancel_btn.clicked.connect(dlg.reject)
-        def save():
-            name = name_input.text().strip()
-            donor_id = donor_combo.currentData()
-            fundtype = fundtype_input.text().strip()
-            if not name or not fundtype:
-                QMessageBox.warning(dlg, "Error", "Fund Name and Fund Type are required.")
-                return
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO Fund (FundName , TransactionID, DonorID, FundType) VALUES (?, ?, ?, ?)",
-                    (name, transaction_id, donor_id, fundtype)
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            dlg.accept()
-            if hasattr(self, "refresh_fund_table"):
-                self.refresh_fund_table()
-        save_btn.clicked.connect(save)
-        dlg.exec_()
-
-    def edit_transaction(self, transaction_id):
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM Transactions WHERE TransactionID=?", (transaction_id,))
-            tx = cur.fetchone()
-        finally:
-            conn.close()
-        if not tx:
-            QMessageBox.warning(self, "Error", "Transaction not found.")
-            return
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Edit Transaction")
-        dlg.setStyleSheet(DialogStyles())
-        lyt = QVBoxLayout(dlg)
-        form = QFormLayout()
-        date_input = QDateEdit()
-        date_input.setCalendarPopup(True)
-        if tx["TransactionDate"]:
-            date_input.setDate(QDate.fromString(tx["TransactionDate"], "yyyy-MM-dd"))
-        else:
-            date_input.setDate(QDate.currentDate())
-        type_combo = QComboBox()
-        type_combo.addItems(["Income", "Expense"])
-        idx = type_combo.findText(tx["TransactionType"])
-        if idx >= 0:
-            type_combo.setCurrentIndex(idx)
-        amount_input = QLineEdit(str(tx["Amount"]))
-        amount_input.setValidator(QDoubleValidator(0, 1e12, 2))
-        # Program
-        program_combo = QComboBox()
-        program_combo.addItem("None", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
-            programs = cur.fetchall()
-        finally:
-            conn.close()
-        prog_idx = 0
-        for i, prog in enumerate(programs):
-            program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
-            if tx["ProgramID"] == prog["PA_Id"]:
-                prog_idx = i + 1
-        program_combo.setCurrentIndex(prog_idx)
-        # Project
-        project_combo = QComboBox()
-        project_combo.addItem("None", None)
-        def update_projects():
-            project_combo.blockSignals(True)
-            project_combo.clear()
-            project_combo.addItem("None", None)
-            prog_id = program_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if prog_id:
-                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
-                else:
-                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
-                projects = cur.fetchall()
-            finally:
-                conn.close()
-            proj_idx = 0
-            for i, proj in enumerate(projects):
-                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
-                if tx["ProjectID"] == proj["ProjectID"]:
-                    proj_idx = i + 1
-            project_combo.setCurrentIndex(proj_idx)
-            project_combo.blockSignals(False)
-        update_projects()
-        program_combo.currentIndexChanged.connect(update_projects)
-        # Activity
-        activity_combo = QComboBox()
-        activity_combo.addItem("None", None)
-        def update_activities():
-            activity_combo.blockSignals(True)
-            activity_combo.clear()
-            activity_combo.addItem("None", None)
-            proj_id = project_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if proj_id:
-                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities WHERE ProjectID=?", (proj_id,))
-                else:
-                    cur.execute("SELECT ActivityID, ActivityName FROM Project_Activities")
-                acts = cur.fetchall()
-            finally:
-                conn.close()
-            act_idx = 0
-            for i, act in enumerate(acts):
-                activity_combo.addItem(act["ActivityName"], act["ActivityID"])
-                if tx["ActivityID"] == act["ActivityID"]:
-                    act_idx = i + 1
-            activity_combo.setCurrentIndex(act_idx)
-            activity_combo.blockSignals(False)
-        update_activities()
-        project_combo.currentIndexChanged.connect(update_activities)
-        reference_input = QLineEdit(tx["Reference"] or "")
-        description_input = QLineEdit(tx["Description"] or "")
-        # Category
-        category_combo = QComboBox()
-        category_combo.addItem("None", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT CategoryID, Name FROM Categories")
-            cats = cur.fetchall()
-        finally:
-            conn.close()
-        cat_idx = 0
-        for i, cat in enumerate(cats):
-            category_combo.addItem(cat["Name"], cat["CategoryID"])
-            # Find subcategory's category
-            if tx["SubCategories"]:
-                conn2 = get_db_connection()
-                try:
-                    cur2 = conn2.cursor()
-                    cur2.execute("SELECT category_id FROM Subcategories WHERE SubCategoryID=?", (tx["SubCategories"],))
-                    subcat = cur2.fetchone()
-                finally:
-                    conn2.close()
-                if subcat and subcat["category_id"] == cat["CategoryID"]:
-                    cat_idx = i + 1
-        category_combo.setCurrentIndex(cat_idx)
-        # Subcategory
-        subcategory_combo = QComboBox()
-        subcategory_combo.addItem("None", None)
-        def update_subcategories():
-            subcategory_combo.blockSignals(True)
-            subcategory_combo.clear()
-            subcategory_combo.addItem("None", None)
-            cat_id = category_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if cat_id:
-                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories WHERE category_id=?", (cat_id,))
-                else:
-                    cur.execute("SELECT SubCategoryID, Name FROM Subcategories")
-                subs = cur.fetchall()
-            finally:
-                conn.close()
-            sub_idx = 0
-            for i, sub in enumerate(subs):
-                subcategory_combo.addItem(sub["Name"], sub["SubCategoryID"])
-                if tx["SubCategories"] == sub["SubCategoryID"]:
-                    sub_idx = i + 1
-            subcategory_combo.setCurrentIndex(sub_idx)
-            subcategory_combo.blockSignals(False)
-        update_subcategories()
-        category_combo.currentIndexChanged.connect(update_subcategories)
-        form.addRow("Date:", date_input)
-        form.addRow("Type:", type_combo)
-        form.addRow("Amount:", amount_input)
-        form.addRow("Program:", program_combo)
-        form.addRow("Project:", project_combo)
-        form.addRow("Activity:", activity_combo)
-        form.addRow("Reference:", reference_input)
-        form.addRow("Description:", description_input)
-        form.addRow("Category:", category_combo)
-        form.addRow("Subcategory:", subcategory_combo)
-        lyt.addLayout(form)
-        btns = QHBoxLayout()
-        save_btn = button("Save", "primary", "sm")
-        cancel_btn = button("Cancel", "secondary", "sm")
-        btns.addStretch()
-        btns.addWidget(save_btn)
-        btns.addWidget(cancel_btn)
-        lyt.addLayout(btns)
-        cancel_btn.clicked.connect(dlg.reject)
-        def save():
-            date = date_input.date().toString("yyyy-MM-dd")
-            ttype = type_combo.currentText()
-            try:
-                amount = float(amount_input.text())
-            except Exception:
-                QMessageBox.warning(dlg, "Error", "Amount is required and must be a number.")
-                return
-            program_id = program_combo.currentData()
-            project_id = project_combo.currentData()
-            activity_id = activity_combo.currentData()
-            reference = reference_input.text().strip()
-            desc = description_input.text().strip()
-            subcat_id = subcategory_combo.currentData()
-            if not date or not ttype or not amount or not subcat_id:
-                QMessageBox.warning(dlg, "Error", "Date, Type, Amount, and Subcategory are required.")
-                return
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("""
-                    UPDATE Transactions SET
-                    TransactionDate=?, TransactionType=?, Amount=?, ProgramID=?, ProjectID=?, ActivityID=?, Reference=?, Description=?, SubCategories=?
-                    WHERE TransactionID=?
-                """, (date, ttype, amount, program_id, project_id, activity_id, reference, desc, subcat_id, transaction_id))
-                conn.commit()
-            finally:
-                conn.close()
-            dlg.accept()
-            self.refresh_transaction_table()
-        save_btn.clicked.connect(save)
-        dlg.exec_()
-
-    def delete_transaction(self, transaction_id):
-        reply = QMessageBox.question(self, "Delete", "Delete this transaction?", QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("DELETE FROM Transactions WHERE TransactionID=?", (transaction_id,))
-                conn.commit()
-            finally:
-                conn.close()
-            self.refresh_transaction_table()
-
 class FundPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -2749,6 +2271,7 @@ class FundPage(QWidget):
         lyt = QVBoxLayout(dlg)
         form = QFormLayout()
         name_input = QLineEdit()
+        # initialDate (date) input
         date_input = QDateEdit()
         date_input.setCalendarPopup(True)
         date_input.setDate(QDate.currentDate())
@@ -2758,16 +2281,17 @@ class FundPage(QWidget):
         conn = get_db_connection()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT DonorID, firstname, lastname FROM Donors")
+            cur.execute("SELECT DonorID, Name FROM Donors")
             donor_list = cur.fetchall()
         finally:
             conn.close()
         donor_combo.addItem("None", None)
         for d in donor_list:
-            donor_combo.addItem(f"{d['firstname']} {d['lastname']}", d["DonorID"])
-        fundtype_input = QLineEdit()
+            donor_combo.addItem(d["Name"], d["DonorID"])
+        fundtype_input = QComboBox()
+        fundtype_input.addItems(["Restricted", "Unrestricted"])
         form.addRow("Name:", name_input)
-        form.addRow("Date:", date_input)
+        form.addRow("Initial Date:", date_input)
         form.addRow("Donor:", donor_combo)
         form.addRow("FundType:", fundtype_input)
         lyt.addLayout(form)
@@ -2780,25 +2304,33 @@ class FundPage(QWidget):
         lyt.addLayout(btns)
         cancel_btn.clicked.connect(dlg.reject)
         def save():
+            conn = get_db_connection()
             name = name_input.text().strip()
-            date = date_input.date().toString("yyyy-MM-dd")
+            initial_date = date_input.date().toString("yyyy-MM-dd")
             donor_id = donor_combo.currentData()
-            fundtype = fundtype_input.text().strip()
+            fundtype = fundtype_input.currentText().strip()
             if not name or not fundtype:
                 QMessageBox.warning(dlg, "Error", "Name and FundType are required.")
                 return
-            conn = get_db_connection()
+            # Uniqueness validation for FundName
             try:
                 cur = conn.cursor()
+                cur.execute("SELECT 1 FROM Fund WHERE FundName = ?", (name,))
+                if cur.fetchone():
+                    QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
+                    return
                 cur.execute(
-                    "INSERT INTO Fund (FundName , Date, DonorID, FundType) VALUES (?, ?, ?, ?)",
-                    (name, date, donor_id, fundtype)
+                    "INSERT INTO Fund (FundName, DonorId, FundType, initialDate) VALUES (?, ?, ?, ?)",
+                    (name, donor_id, fundtype, initial_date)
                 )
                 conn.commit()
+            except sqlite3.IntegrityError:
+                QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
+                return
             finally:
                 conn.close()
-            dlg.accept()
-            self.refresh_fund_table()
+        dlg.accept()
+        self.refresh_fund_table()
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -2819,26 +2351,38 @@ class FundPage(QWidget):
         lyt = QVBoxLayout(dlg)
         form = QFormLayout()
         name_input = QLineEdit(fund["FundName"])
-        # Date is not editable here, as it's joined from Transactions
+        # initialDate is editable
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        if fund["initialDate"]:
+            date_input.setDate(QDate.fromString(fund["initialDate"], "yyyy-MM-dd"))
+        else:
+            date_input.setDate(QDate.currentDate())
         # Donor ComboBox
         donor_combo = QComboBox()
         donor_list = []
         conn2 = get_db_connection()
         try:
             cur2 = conn2.cursor()
-            cur2.execute("SELECT DonorID, firstname, lastname FROM Donors")
+            cur2.execute("SELECT DonorID, Name FROM Donors")
             donor_list = cur2.fetchall()
         finally:
             conn2.close()
         donor_combo.addItem("None", None)
         idx = 0
         for i, d in enumerate(donor_list):
-            donor_combo.addItem(f"{d['firstname']} {d['lastname']}", d["DonorID"])
-            if fund["DonorID"] == d["DonorID"]:
+            donor_combo.addItem(d["Name"], d["DonorID"])
+            if fund["DonorId"] == d["DonorID"]:
                 idx = i + 1  # +1 for "None"
         donor_combo.setCurrentIndex(idx)
-        fundtype_input = QLineEdit(fund["FundType"])
+        fundtype_input = QComboBox()
+        fundtype_input.addItems(["Restricted", "Unrestricted"])
+        if fund["FundType"]:
+            idx = fundtype_input.findText(fund["FundType"])
+            if idx >= 0:
+                fundtype_input.setCurrentIndex(idx)
         form.addRow("Name:", name_input)
+        form.addRow("Initial Date:", date_input)
         form.addRow("Donor:", donor_combo)
         form.addRow("FundType:", fundtype_input)
         lyt.addLayout(form)
@@ -2852,19 +2396,28 @@ class FundPage(QWidget):
         cancel_btn.clicked.connect(dlg.reject)
         def save():
             name = name_input.text().strip()
+            initial_date = date_input.date().toString("yyyy-MM-dd")
             donor_id = donor_combo.currentData()
             fundtype = fundtype_input.text().strip()
             if not name or not fundtype:
                 QMessageBox.warning(dlg, "Error", "Name and FundType are required.")
                 return
+            # Uniqueness validation for FundName (excluding current fund)
             conn3 = get_db_connection()
             try:
                 cur3 = conn3.cursor()
+                cur3.execute("SELECT 1 FROM Fund WHERE FundName = ? AND FundID != ?", (name, fund_id))
+                if cur3.fetchone():
+                    QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
+                    return
                 cur3.execute(
-                    "UPDATE Fund SET FundName=?, DonorID=?, FundType=? WHERE FundID=?",
-                    (name, donor_id, fundtype, fund_id)
+                    "UPDATE Fund SET FundName=?, DonorId=?, FundType=?, initialDate=? WHERE FundID=?",
+                    (name, donor_id, fundtype, initial_date, fund_id)
                 )
                 conn3.commit()
+            except sqlite3.IntegrityError:
+                QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
+                return
             finally:
                 conn3.close()
             dlg.accept()
@@ -3917,13 +3470,175 @@ def outline_button(text, button_type="primary", size="md", icon_path=None, icon_
 
     return button
 
+def dropdown_button(text, items, button_type="primary", size="md", icon_path=None, icon_toolTip=None, icon_size=24):
+    """
+    Create a Bootstrap-inspired dropdown button using QComboBox, styled like button/outline_button.
+
+    :param text: The label to show as the first item (placeholder).
+    :param items: List of (display_text, value) tuples or just strings.
+    :param button_type: Bootstrap color (primary, success, etc.).
+    :param size: sm, md, lg.
+    :param icon_path: Optional icon.
+    :param icon_toolTip: Tooltip.
+    :param icon_size: Icon size.
+    :return: QComboBox styled as a dropdown button.
+    """
+    combo = QComboBox()
+    combo.setToolTip(icon_toolTip)
+    # Button Styles Dictionary
+    styles = {
+        "primary": "background-color: #007bff; color: white; border: 1.5px solid #007bff;",
+        "secondary": "background-color: #6c757d; color: white; border: 1.5px solid #6c757d;",
+        "success": "background-color: #28a745; color: white; border: 1.5px solid #28a745;",
+        "danger": "background-color: #dc3545; color: white; border: 1.5px solid #dc3545;",
+        "warning": "background-color: #ffc107; color: black; border: 1.5px solid #ffc107;",
+        "info": "background-color: #17a2b8; color: white; border: 1.5px solid #17a2b8;",
+        "light": "background-color: #f8f9fa; color: black; border: 1.5px solid #f8f9fa;",
+        "dark": "background-color: #343a40; color: white; border: 1.5px solid #343a40;",
+    }
+    sizes = {
+        "sm": "padding: 4px 10px; font-size: 12px; min-height: 28px;",
+        "md": "padding: 6px 12px; font-size: 14px; min-height: 34px;",
+        "lg": "padding: 10px 16px; font-size: 18px; min-height: 42px;",
+    }
+    combo.setStyleSheet(f"""
+        QComboBox {{
+            border-radius: 5px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            {styles.get(button_type, styles['primary'])}
+            {sizes.get(size, sizes['md'])}
+        }}
+        QComboBox:hover {{
+            opacity: 0.9;
+        }}
+        QComboBox QAbstractItemView {{
+            border: 1.5px solid #dee2e6;
+            background-color: #fff;
+            selection-background-color: #007bff;
+            selection-color: white;
+            font-size: 14px;
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 28px;
+            border-left: 1px solid #ced4da;
+            background-color: #e9ecef;
+        }}
+        QComboBox::down-arrow {{
+            image: url('icons/down-arrow.png');
+            width: 16px;
+            height: 16px;
+        }}
+    """)
+    if icon_path:
+        combo.setEditable(True)
+        combo.lineEdit().setReadOnly(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.setIconSize(QSize(icon_size, icon_size))
+        combo.setItemIcon(0, QIcon(icon_path))
+        combo.lineEdit().setAlignment(Qt.AlignLeft)
+        combo.lineEdit().setPlaceholderText(text)
+        combo.setEditable(False)
+    else:
+        combo.addItem(text, None)
+    # Add items
+    for item in items:
+        if isinstance(item, tuple):
+            combo.addItem(item[0], item[1])
+        else:
+            combo.addItem(str(item))
+    combo.setCursor(Qt.PointingHandCursor)
+    return combo
+
+def outline_dropdown_button(text, items, button_type="primary", size="md", icon_path=None, icon_toolTip=None, icon_size=24):
+    """
+    Create a Bootstrap-inspired outline dropdown button using QComboBox.
+
+    :param text: The label to show as the first item (placeholder).
+    :param items: List of (display_text, value) tuples or just strings.
+    :param button_type: Bootstrap color (primary, success, etc.).
+    :param size: sm, md, lg.
+    :param icon_path: Optional icon.
+    :param icon_toolTip: Tooltip.
+    :param icon_size: Icon size.
+    :return: QComboBox styled as an outline dropdown button.
+    """
+    combo = QComboBox()
+    combo.setToolTip(icon_toolTip)
+    styles = {
+        "primary": "background-color: transparent; color: #007bff; border: 1.5px solid #007bff;",
+        "secondary": "background-color: transparent; color: #6c757d; border: 1.5px solid #6c757d;",
+        "success": "background-color: transparent; color: #28a745; border: 1.5px solid #28a745;",
+        "danger": "background-color: transparent; color: #dc3545; border: 1.5px solid #dc3545;",
+        "warning": "background-color: transparent; color: #ffc107; border: 1.5px solid #ffc107;",
+        "info": "background-color: transparent; color: #17a2b8; border: 1.5px solid #17a2b8;",
+        "light": "background-color: transparent; color: #f8f9fa; border: 1.5px solid #f8f9fa;",
+        "dark": "background-color: transparent; color: #343a40; border: 1.5px solid #343a40;",
+    }
+    sizes = {
+        "sm": "padding: 4px 10px; font-size: 12px; min-height: 28px;",
+        "md": "padding: 6px 12px; font-size: 14px; min-height: 34px;",
+        "lg": "padding: 10px 16px; font-size: 18px; min-height: 42px;",
+    }
+    combo.setStyleSheet(f"""
+        QComboBox {{
+            border-radius: 5px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            {styles.get(button_type, styles['primary'])}
+            {sizes.get(size, sizes['md'])}
+        }}
+        QComboBox:hover {{
+            background-color: #f8f9fa;
+            opacity: 0.9;
+        }}
+        QComboBox QAbstractItemView {{
+            border: 1.5px solid #dee2e6;
+            background-color: #fff;
+            selection-background-color: #007bff;
+            selection-color: white;
+            font-size: 14px;
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 28px;
+            border-left: 1px solid #ced4da;
+            background-color: #e9ecef;
+        }}
+        QComboBox::down-arrow {{
+            image: url('icons/down-arrow.png');
+            width: 16px;
+            height: 16px;
+        }}
+    """)
+    if icon_path:
+        combo.setEditable(True)
+        combo.lineEdit().setReadOnly(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.setIconSize(QSize(icon_size, icon_size))
+        combo.setItemIcon(0, QIcon(icon_path))
+        combo.lineEdit().setAlignment(Qt.AlignLeft)
+        combo.lineEdit().setPlaceholderText(text)
+        combo.setEditable(False)
+    else:
+        combo.addItem(text, None)
+    for item in items:
+        if isinstance(item, tuple):
+            combo.addItem(item[0], item[1])
+        else:
+            combo.addItem(str(item))
+    combo.setCursor(Qt.PointingHandCursor)
+    return combo
+
 class TableTitle(QLabel):
     def __init__(self, Text):
         super().__init__()
         self.setText(Text)
         self.setFont(QFont("Lato-Regular", 14))
         self.setStyleSheet("color:#1B263B;")
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
