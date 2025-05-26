@@ -1941,7 +1941,8 @@ class TransactionsPage(QWidget):
         self.AddButton = button("Transaction", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Expenses Transaction")
         self.AddButton.clicked.connect(self.add_transaction)
         self.addFund = button("Add Fund", "info", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
-        self.addFund.clicked.connect(FundPage().add_fund)
+        # Connect to the add_fund method of the FundPage instance in the main window
+        self.addFund.clicked.connect(lambda: self.parent().parent().parent().findChild(FundPage).add_fund())
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -2059,9 +2060,6 @@ class TransactionsPage(QWidget):
         self.TableofTransactions.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         Layout.addWidget(self.TableofTransactions)
 
-        # Connect Add button (implement add_transaction if needed)
-        # self.AddButton.clicked.connect(self.add_transaction)
-
         # Connect search and filters
         self.SearchBar.textChanged.connect(self.refresh_transaction_table)
         self.type_filter.currentIndexChanged.connect(self.refresh_transaction_table)
@@ -2151,7 +2149,7 @@ class TransactionsPage(QWidget):
     def add_transaction(self):
         """
         Show a dialog to add a new transaction (Funds or Expense).
-        Handles all required fields, validation, and inserts into the database.
+        Fund selection now auto-selects Program and Project based on Fund.
         """
         dlg = QDialog(self)
         dlg.setWindowTitle("Add Transaction")
@@ -2164,15 +2162,35 @@ class TransactionsPage(QWidget):
         date_input.setCalendarPopup(True)
         date_input.setDate(QDate.currentDate())
 
+        # Transaction Type
+        type_input = QComboBox()
+        type_input.addItems(["Funds", "Expense"])
+
+        # Fund ComboBox (moved up, only for Funds type)
+        fund_input = QComboBox()
+        fund_input.addItem("Choose the Fund Name", None)
+        def update_funds():
+            fund_input.blockSignals(True)
+            fund_input.clear()
+            fund_input.addItem("Choose the Fund Name", None)
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT FundID, FundName FROM Fund")
+                funds = cur.fetchall()
+            finally:
+                conn.close()
+            for fund in funds:
+                fund_input.addItem(fund["FundName"], fund["FundID"])
+            fund_input.blockSignals(False)
+        update_funds()
+        fund_input.setVisible(False)  # Only show for Funds type
+
         # Budget Year (range format)
         year_input = QComboBox()
         years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
         year_input.addItems(years)
         year_input.setCurrentText(str(datetime.now().year))
-
-        # Transaction Type
-        type_input = QComboBox()
-        type_input.addItems(["Funds", "Expense"])
 
         # Amount
         amount_input = QLineEdit()
@@ -2276,28 +2294,15 @@ class TransactionsPage(QWidget):
         update_subcategories()
         category_input.currentIndexChanged.connect(update_subcategories)
 
-        # Fund ComboBox (only for Funds transactions)
-        fund_input = QComboBox()
-        fund_input.addItem("Choose the Fund Name", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT FundID, FundName FROM Fund")
-            funds = cur.fetchall()
-        finally:
-            conn.close()
-        for fund in funds:
-            fund_input.addItem(fund["FundName"], fund["FundID"])
-        fund_input.setVisible(False)  # Only show for Funds type
-
         # Description and Reference
         description_input = QLineEdit()
         reference_input = QLineEdit()
 
-        # Add widgets to form
+        # Add widgets to form (Fund comes after Type)
         form.addRow("Transaction Date:", date_input)
-        form.addRow("Budget Year:", year_input)
         form.addRow("Transaction Type:", type_input)
+        form.addRow("Fund:", fund_input)
+        form.addRow("Budget Year:", year_input)
         form.addRow("Amount:", amount_input)
         form.addRow("Program:", program_input)
         form.addRow("Project:", project_input)
@@ -2306,7 +2311,6 @@ class TransactionsPage(QWidget):
         form.addRow("Subcategory:", subcat_input)
         form.addRow("Description:", description_input)
         form.addRow("Reference:", reference_input)
-        form.addRow("Fund:", fund_input)
         lyt.addLayout(form)
 
         # Buttons
@@ -2332,6 +2336,33 @@ class TransactionsPage(QWidget):
                 subcat_input.setEnabled(True)
         type_input.currentIndexChanged.connect(on_type_changed)
         on_type_changed(type_input.currentIndex())
+
+        # When Fund is selected, auto-select Program and Project
+        def on_fund_changed(idx):
+            fund_id = fund_input.currentData()
+            if fund_id:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT ProgramID, ProjectID FROM Fund WHERE FundID=?", (fund_id,))
+                    fund = cur.fetchone()
+                finally:
+                    conn.close()
+                # Set Program
+                if fund and fund["ProgramID"]:
+                    prog_idx = program_input.findData(fund["ProgramID"])
+                    if prog_idx >= 0:
+                        program_input.setCurrentIndex(prog_idx)
+                # Set Project
+                if fund and fund["ProjectID"]:
+                    # update_projects() already called by program_input change
+                    # But ensure project is set after update_projects
+                    def set_project():
+                        proj_idx = project_input.findData(fund["ProjectID"])
+                        if proj_idx >= 0:
+                            project_input.setCurrentIndex(proj_idx)
+                    QTimer.singleShot(0, set_project)
+        fund_input.currentIndexChanged.connect(on_fund_changed)
 
         # Save logic
         def save():
@@ -2399,23 +2430,17 @@ class TransactionsPage(QWidget):
         dlg.exec_()
     
     def edit_transaction(self, transaction_id):
+        """
+        Show a dialog to edit an existing transaction (Funds or Expense).
+        """
+        # Fetch transaction data
         conn = get_db_connection()
         try:
             cur = conn.cursor()
             cur.execute("""
-                SELECT t.*, 
-                       pa.PA_Name, 
-                       p.ProjectName, 
-                       a.ActivityName, 
-                       s.Name as SubcategoryName,
-                       f.FundID as FundID
+                SELECT t.*, ft.fund_id
                 FROM Transactions t
-                LEFT JOIN Projects p ON t.ProjectID = p.ProjectID
-                LEFT JOIN Program_administrations pa ON t.ProgramID = pa.PA_Id
-                LEFT JOIN Project_Activities a ON t.ActivityID = a.ActivityID
-                LEFT JOIN Subcategories s ON t.SubCategories = s.SubCategoryID
-                LEFT JOIN FundTransaction ft ON t.TransactionID = ft.TransactionID
-                LEFT JOIN Fund f ON ft.FundID = f.FundID
+                LEFT JOIN FundTransactions ft ON t.TransactionID = ft.Transaction_id
                 WHERE t.TransactionID = ?
             """, (transaction_id,))
             tx = cur.fetchone()
@@ -2439,21 +2464,38 @@ class TransactionsPage(QWidget):
         else:
             date_input.setDate(QDate.currentDate())
 
-        # Budget Year (range format)
-        year_input = QComboBox()
-        years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
-        year_input.addItems(years)
-        if tx["BudgetYear"]:
-            idx = year_input.findText(str(tx["BudgetYear"]))
-            if idx >= 0:
-                year_input.setCurrentIndex(idx)
-
         # Transaction Type
         type_input = QComboBox()
         type_input.addItems(["Funds", "Expense"])
         idx = type_input.findText(tx["TransactionType"])
         if idx >= 0:
             type_input.setCurrentIndex(idx)
+
+        # Fund ComboBox (only for Funds type)
+        fund_input = QComboBox()
+        fund_input.addItem("Choose the Fund Name", None)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT FundID, FundName FROM Fund")
+            funds = cur.fetchall()
+        finally:
+            conn.close()
+        fund_idx = 0
+        for i, fund in enumerate(funds):
+            fund_input.addItem(fund["FundName"], fund["FundID"])
+            if tx["fund_id"] == fund["FundID"]:
+                fund_idx = i + 1
+        fund_input.setCurrentIndex(fund_idx)
+        fund_input.setVisible(tx["TransactionType"] == "Funds")
+
+        # Budget Year (range format)
+        year_input = QComboBox()
+        years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
+        year_input.addItems(years)
+        idx = year_input.findText(str(tx["BudgetYear"]))
+        if idx >= 0:
+            year_input.setCurrentIndex(idx)
 
         # Amount
         amount_input = QLineEdit(str(tx["Amount"]) if tx["Amount"] else "")
@@ -2545,17 +2587,17 @@ class TransactionsPage(QWidget):
         cat_idx = 0
         for i, cat in enumerate(categories):
             category_input.addItem(cat["Name"], cat["CategoryID"])
-            # Try to select the category of the subcategory
+            # Try to set category if subcategory is present
             if tx["SubCategories"]:
-                conn = get_db_connection()
+                conn2 = get_db_connection()
                 try:
-                    cur = conn.cursor()
-                    cur.execute("SELECT category_id FROM Subcategories WHERE SubCategoryID=?", (tx["SubCategories"],))
-                    row = cur.fetchone()
-                    if row and row["category_id"] == cat["CategoryID"]:
-                        cat_idx = i + 1
+                    cur2 = conn2.cursor()
+                    cur2.execute("SELECT category_id FROM Subcategories WHERE SubCategoryID=?", (tx["SubCategories"],))
+                    subcat_row = cur2.fetchone()
                 finally:
-                    conn.close()
+                    conn2.close()
+                if subcat_row and cat["CategoryID"] == subcat_row["category_id"]:
+                    cat_idx = i + 1
         category_input.setCurrentIndex(cat_idx)
 
         # Subcategory ComboBox (filtered by category)
@@ -2586,32 +2628,15 @@ class TransactionsPage(QWidget):
         update_subcategories()
         category_input.currentIndexChanged.connect(update_subcategories)
 
-        # Fund ComboBox (only for Funds transactions)
-        fund_input = QComboBox()
-        fund_input.addItem("None", None)
-        conn = get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT FundID, FundName FROM Fund")
-            funds = cur.fetchall()
-        finally:
-            conn.close()
-        fund_idx = 0
-        for i, fund in enumerate(funds):
-            fund_input.addItem(fund["FundName"], fund["FundID"])
-            if tx["TransactionType"] == "Funds" and tx["FundID"] == fund["FundID"]:
-                fund_idx = i + 1
-        fund_input.setCurrentIndex(fund_idx)
-        fund_input.setVisible(tx["TransactionType"] == "Funds")
-
         # Description and Reference
         description_input = QLineEdit(tx["Description"] or "")
         reference_input = QLineEdit(tx["Reference"] or "")
 
-        # Add widgets to form
+        # Add widgets to form (Fund comes after Type)
         form.addRow("Transaction Date:", date_input)
-        form.addRow("Budget Year:", year_input)
         form.addRow("Transaction Type:", type_input)
+        form.addRow("Fund:", fund_input)
+        form.addRow("Budget Year:", year_input)
         form.addRow("Amount:", amount_input)
         form.addRow("Program:", program_input)
         form.addRow("Project:", project_input)
@@ -2620,7 +2645,6 @@ class TransactionsPage(QWidget):
         form.addRow("Subcategory:", subcat_input)
         form.addRow("Description:", description_input)
         form.addRow("Reference:", reference_input)
-        form.addRow("Fund:", fund_input)
         lyt.addLayout(form)
 
         # Buttons
@@ -2646,6 +2670,31 @@ class TransactionsPage(QWidget):
                 subcat_input.setEnabled(True)
         type_input.currentIndexChanged.connect(on_type_changed)
         on_type_changed(type_input.currentIndex())
+
+        # When Fund is selected, auto-select Program and Project
+        def on_fund_changed(idx):
+            fund_id = fund_input.currentData()
+            if fund_id:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT ProgramID, ProjectID FROM Fund WHERE FundID=?", (fund_id,))
+                    fund = cur.fetchone()
+                finally:
+                    conn.close()
+                # Set Program
+                if fund and fund["ProgramID"]:
+                    prog_idx = program_input.findData(fund["ProgramID"])
+                    if prog_idx >= 0:
+                        program_input.setCurrentIndex(prog_idx)
+                # Set Project
+                if fund and fund["ProjectID"]:
+                    def set_project():
+                        proj_idx = project_input.findData(fund["ProjectID"])
+                        if proj_idx >= 0:
+                            project_input.setCurrentIndex(proj_idx)
+                    QTimer.singleShot(0, set_project)
+        fund_input.currentIndexChanged.connect(on_fund_changed)
 
         def save():
             tdate = date_input.date().toString("yyyy-MM-dd")
@@ -2683,8 +2732,9 @@ class TransactionsPage(QWidget):
                 cur = conn.cursor()
                 # Update Transactions
                 cur.execute("""
-                    UPDATE Transactions
-                    SET TransactionDate=?, BudgetYear=?, TransactionType=?, Amount=?, ProgramID=?, ProjectID=?, ActivityID=?, Description=?, Reference=?, SubCategories=?
+                    UPDATE Transactions SET
+                        TransactionDate=?, BudgetYear=?, TransactionType=?, Amount=?, ProgramID=?, ProjectID=?,
+                        ActivityID=?, Description=?, Reference=?, SubCategories=?
                     WHERE TransactionID=?
                 """, (
                     tdate, year, ttype, amount, program_id, project_id,
@@ -2693,13 +2743,13 @@ class TransactionsPage(QWidget):
                     subcat_id if subcat_id else None,
                     transaction_id
                 ))
-                # Handle FundTransaction
-                cur.execute("DELETE FROM FundTransaction WHERE TransactionID=?", (transaction_id,))
+                # Update FundTransactions
                 if ttype == "Funds":
-                    cur.execute("""
-                        INSERT INTO FundTransaction (FundID, TransactionID)
-                        VALUES (?, ?)
-                    """, (fund_id, transaction_id))
+                    # Remove old, insert new
+                    cur.execute("DELETE FROM FundTransactions WHERE Transaction_id=?", (transaction_id,))
+                    cur.execute("INSERT INTO FundTransactions (fund_id, Transaction_id) VALUES (?, ?)", (fund_id, transaction_id))
+                else:
+                    cur.execute("DELETE FROM FundTransactions WHERE Transaction_id=?", (transaction_id,))
                 conn.commit()
             except Exception as e:
                 QMessageBox.warning(dlg, "Error", f"Failed to update transaction: {e}")
@@ -2789,8 +2839,8 @@ class FundPage(QWidget):
         # Table of Funds
         self.TableofFunds = QTableWidget()
         self.TableofFunds.setStyleSheet(TableStyles())
-        self.TableofFunds.setColumnCount(6)
-        self.TableofFunds.setHorizontalHeaderLabels(["Name", "Date", "Donor Name", "FundType", "Amount","Actions"])
+        self.TableofFunds.setColumnCount(9)
+        self.TableofFunds.setHorizontalHeaderLabels(["Name", "Budget Year" ,"Date", "Donor Name","Program/Admin","Project", "FundType", "Amount","Actions"])
         self.TableofFunds.horizontalHeader().setStretchLastSection(True)
         self.TableofFunds.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         Layout.addWidget(self.TableofFunds)
@@ -2809,17 +2859,24 @@ class FundPage(QWidget):
         search_text = self.SearchBar.text().strip().lower()
         type_val = self.type_filter.currentText()
         year_val = self.year_filter.currentText()
-        # Compose query to get Fund info and SUM of all related Transaction amounts for each Fund
+
+        # Query: Fund info + Donor + Program + Project + SUM of all related Transaction amounts for each Fund
+        # Group by FundID and BudgetYear to aggregate by both Fund and BudgetYear
         query = """
             SELECT 
                 f.FundID, 
                 f.FundName, 
                 f.initialDate as Date, 
-                d.Name, 
+                d.Name as DonorName, 
                 f.FundType,
-                COALESCE(SUM(t.Amount), 0) as Amount
+                f.BudgetYear,
+                pa.PA_Name as ProgramName,
+                p.ProjectName,
+                IFNULL(SUM(t.Amount), 0) as TotalAmount
             FROM Fund f
-            LEFT JOIN Donors d ON f.DonorID = d.DonorID
+            LEFT JOIN Donors d ON f.DonorId = d.DonorID
+            LEFT JOIN Program_administrations pa ON f.ProgramID = pa.PA_Id
+            LEFT JOIN Projects p ON f.ProjectID = p.ProjectID
             LEFT JOIN FundTransactions ft ON f.FundID = ft.Fund_id
             LEFT JOIN Transactions t ON ft.Transaction_id = t.TransactionID
             WHERE 1=1
@@ -2829,12 +2886,14 @@ class FundPage(QWidget):
             query += " AND f.FundType = ?"
             params.append(type_val)
         if year_val and year_val != "All":
-            query += " AND t.BudgetYear = ?"
+            query += " AND f.BudgetYear = ?"
             params.append(year_val)
         if search_text:
-            query += " AND (LOWER(f.FundName) LIKE ? OR LOWER(f.FundType) LIKE ? OR LOWER(d.Name) LIKE ?)"
-            params.extend([f"%{search_text}%"] * 3)
-        query += " GROUP BY f.FundID, f.FundName, f.initialDate, d.Name, f.FundType"
+            query += " AND (LOWER(f.FundName) LIKE ? OR LOWER(f.FundType) LIKE ? OR LOWER(d.Name) LIKE ? OR LOWER(pa.PA_Name) LIKE ? OR LOWER(p.ProjectName) LIKE ?)"
+            params.extend([f"%{search_text}%"] * 5)
+        # Group by FundID and BudgetYear
+        query += " GROUP BY f.FundID, f.BudgetYear"
+
         conn = get_db_connection()
         try:
             cur = conn.cursor()
@@ -2842,17 +2901,20 @@ class FundPage(QWidget):
             rows = cur.fetchall()
         finally:
             conn.close()
+
         table = self.TableofFunds
         table.setRowCount(0)
         for row_idx, fund in enumerate(rows):
             table.insertRow(row_idx)
             table.setRowHeight(row_idx, 45)
             table.setItem(row_idx, 0, QTableWidgetItem(fund["FundName"] or ""))
-            table.setItem(row_idx, 1, QTableWidgetItem(fund["Date"] or ""))
-            donor_name = fund["Name"] or ""
-            table.setItem(row_idx, 2, QTableWidgetItem(donor_name))
-            table.setItem(row_idx, 3, QTableWidgetItem(fund["FundType"] or ""))
-            table.setItem(row_idx, 4, QTableWidgetItem(str(fund["Amount"]) if fund["Amount"] is not None else ""))
+            table.setItem(row_idx, 1, QTableWidgetItem(str(fund["BudgetYear"]) if fund["BudgetYear"] else ""))
+            table.setItem(row_idx, 2, QTableWidgetItem(fund["Date"] or ""))
+            table.setItem(row_idx, 3, QTableWidgetItem(fund["DonorName"] or ""))
+            table.setItem(row_idx, 4, QTableWidgetItem(fund["ProgramName"] or ""))
+            table.setItem(row_idx, 5, QTableWidgetItem(fund["ProjectName"] or ""))
+            table.setItem(row_idx, 6, QTableWidgetItem(fund["FundType"] or ""))
+            table.setItem(row_idx, 7, QTableWidgetItem(str(fund["TotalAmount"])))
             action_widget = QWidget()
             action_layout = QHBoxLayout()
             edit_btn = TableButton("Edit")
@@ -2861,7 +2923,7 @@ class FundPage(QWidget):
             action_layout.addWidget(delete_btn)
             action_layout.setContentsMargins(0, 0, 0, 0)
             action_widget.setLayout(action_layout)
-            table.setCellWidget(row_idx, 5, action_widget)
+            table.setCellWidget(row_idx, 8, action_widget)
             edit_btn.clicked.connect(lambda _, fid=fund["FundID"]: self.edit_fund(fid))
             delete_btn.clicked.connect(lambda _, fid=fund["FundID"]: self.delete_fund(fid))
 
@@ -2872,6 +2934,11 @@ class FundPage(QWidget):
         lyt = QVBoxLayout(dlg)
         form = QFormLayout()
         name_input = QLineEdit()
+        # Budget Year (required)
+        year_input = QComboBox()
+        years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
+        year_input.addItems(years)
+        year_input.setCurrentText(str(datetime.now().year))
         # initialDate (date) input
         date_input = QDateEdit()
         date_input.setCalendarPopup(True)
@@ -2889,11 +2956,50 @@ class FundPage(QWidget):
         donor_combo.addItem("None", None)
         for d in donor_list:
             donor_combo.addItem(d["Name"], d["DonorID"])
+        # Program ComboBox
+        program_combo = QComboBox()
+        program_list = []
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+            program_list = cur.fetchall()
+        finally:
+            conn.close()
+        program_combo.addItem("None", None)
+        for prog in program_list:
+            program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+        # Project ComboBox (filtered by program)
+        project_combo = QComboBox()
+        project_combo.addItem("None", None)
+        def update_projects():
+            project_combo.blockSignals(True)
+            project_combo.clear()
+            project_combo.addItem("None", None)
+            prog_id = program_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if prog_id:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
+                else:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+                projects = cur.fetchall()
+            finally:
+                conn.close()
+            for proj in projects:
+                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+            project_combo.blockSignals(False)
+        update_projects()
+        program_combo.currentIndexChanged.connect(update_projects)
         fundtype_input = QComboBox()
         fundtype_input.addItems(["Restricted", "Unrestricted"])
         form.addRow("Name:", name_input)
+        form.addRow("Budget Year:", year_input)
         form.addRow("Initial Date:", date_input)
         form.addRow("Donor:", donor_combo)
+        form.addRow("Program:", program_combo)
+        form.addRow("Project:", project_combo)
         form.addRow("FundType:", fundtype_input)
         lyt.addLayout(form)
         btns = QHBoxLayout()
@@ -2907,11 +3013,14 @@ class FundPage(QWidget):
         def save():
             conn = get_db_connection()
             name = name_input.text().strip()
+            budget_year = year_input.currentText()
             initial_date = date_input.date().toString("yyyy-MM-dd")
             donor_id = donor_combo.currentData()
+            program_id = program_combo.currentData()
+            project_id = project_combo.currentData()
             fundtype = fundtype_input.currentText().strip()
-            if not name or not fundtype:
-                QMessageBox.warning(dlg, "Error", "Name and FundType are required.")
+            if not name or not fundtype or not budget_year or not program_id or not project_id:
+                QMessageBox.warning(dlg, "Error", "Name, Budget Year, FundType, Program, and Project are required.")
                 return
             # Uniqueness validation for FundName
             try:
@@ -2921,8 +3030,8 @@ class FundPage(QWidget):
                     QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
                     return
                 cur.execute(
-                    "INSERT INTO Fund (FundName, DonorId, FundType, initialDate) VALUES (?, ?, ?, ?)",
-                    (name, donor_id, fundtype, initial_date)
+                    "INSERT INTO Fund (FundName, DonorId, BudgetYear, ProgramID, ProjectID, FundType, initialDate) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (name, donor_id, budget_year, program_id, project_id, fundtype, initial_date)
                 )
                 conn.commit()
             except sqlite3.IntegrityError:
@@ -2930,8 +3039,8 @@ class FundPage(QWidget):
                 return
             finally:
                 conn.close()
-        dlg.accept()
-        self.refresh_fund_table()
+            dlg.accept()
+            self.refresh_fund_table()
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -2955,6 +3064,15 @@ class FundPage(QWidget):
 
         # Name
         name_input = QLineEdit(fund["FundName"])
+
+        # Budget Year
+        year_input = QComboBox()
+        years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
+        year_input.addItems(years)
+        if fund["BudgetYear"]:
+            idx = year_input.findText(str(fund["BudgetYear"]))
+            if idx >= 0:
+                year_input.setCurrentIndex(idx)
 
         # initialDate (date) input
         date_input = QDateEdit()
@@ -2982,6 +3100,52 @@ class FundPage(QWidget):
                 idx = i + 1  # +1 for "None"
         donor_combo.setCurrentIndex(idx)
 
+        # Program ComboBox
+        program_combo = QComboBox()
+        program_list = []
+        conn3 = get_db_connection()
+        try:
+            cur3 = conn3.cursor()
+            cur3.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
+            program_list = cur3.fetchall()
+        finally:
+            conn3.close()
+        program_combo.addItem("None", None)
+        prog_idx = 0
+        for i, prog in enumerate(program_list):
+            program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+            if fund["ProgramID"] == prog["PA_Id"]:
+                prog_idx = i + 1
+        program_combo.setCurrentIndex(prog_idx)
+
+        # Project ComboBox (filtered by program)
+        project_combo = QComboBox()
+        project_combo.addItem("None", None)
+        def update_projects():
+            project_combo.blockSignals(True)
+            project_combo.clear()
+            project_combo.addItem("None", None)
+            prog_id = program_combo.currentData()
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                if prog_id:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
+                else:
+                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
+                projects = cur.fetchall()
+            finally:
+                conn.close()
+            proj_idx = 0
+            for i, proj in enumerate(projects):
+                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+                if fund["ProjectID"] == proj["ProjectID"]:
+                    proj_idx = i + 1
+            project_combo.setCurrentIndex(proj_idx)
+            project_combo.blockSignals(False)
+        update_projects()
+        program_combo.currentIndexChanged.connect(update_projects)
+
         # FundType ComboBox
         fundtype_input = QComboBox()
         fundtype_input.addItems(["Restricted", "Unrestricted"])
@@ -2991,8 +3155,11 @@ class FundPage(QWidget):
                 fundtype_input.setCurrentIndex(idx)
 
         form.addRow("Name:", name_input)
+        form.addRow("Budget Year:", year_input)
         form.addRow("Initial Date:", date_input)
         form.addRow("Donor:", donor_combo)
+        form.addRow("Program:", program_combo)
+        form.addRow("Project:", project_combo)
         form.addRow("FundType:", fundtype_input)
         lyt.addLayout(form)
 
@@ -3007,30 +3174,33 @@ class FundPage(QWidget):
 
         def save():
             name = name_input.text().strip()
+            budget_year = year_input.currentText()
             initial_date = date_input.date().toString("yyyy-MM-dd")
             donor_id = donor_combo.currentData()
+            program_id = program_combo.currentData()
+            project_id = project_combo.currentData()
             fundtype = fundtype_input.currentText().strip()
-            if not name or not fundtype:
-                QMessageBox.warning(dlg, "Error", "Name and FundType are required.")
+            if not name or not fundtype or not budget_year or not program_id or not project_id:
+                QMessageBox.warning(dlg, "Error", "Name, Budget Year, FundType, Program, and Project are required.")
                 return
             # Uniqueness validation for FundName (excluding current fund)
-            conn3 = get_db_connection()
+            conn4 = get_db_connection()
             try:
-                cur3 = conn3.cursor()
-                cur3.execute("SELECT 1 FROM Fund WHERE FundName = ? AND FundID != ?", (name, fund_id))
-                if cur3.fetchone():
+                cur4 = conn4.cursor()
+                cur4.execute("SELECT 1 FROM Fund WHERE FundName = ? AND FundID != ?", (name, fund_id))
+                if cur4.fetchone():
                     QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
                     return
-                cur3.execute(
-                    "UPDATE Fund SET FundName=?, DonorId=?, FundType=?, initialDate=? WHERE FundID=?",
-                    (name, donor_id, fundtype, initial_date, fund_id)
+                cur4.execute(
+                    "UPDATE Fund SET FundName=?, DonorId=?, BudgetYear=?, ProgramID=?, ProjectID=?, FundType=?, initialDate=? WHERE FundID=?",
+                    (name, donor_id, budget_year, program_id, project_id, fundtype, initial_date, fund_id)
                 )
-                conn3.commit()
+                conn4.commit()
             except sqlite3.IntegrityError:
                 QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
                 return
             finally:
-                conn3.close()
+                conn4.close()
             dlg.accept()
             self.refresh_fund_table()
 
@@ -3108,7 +3278,7 @@ class BudgetsPage(QWidget):
         self.TableofBudgets.setStyleSheet(TableStyles())
         self.TableofBudgets.setColumnCount(8)
         self.TableofBudgets.setHorizontalHeaderLabels([
-            "Budget Year", "Program/Administration", "Project", "Activity", "Amount", "Source","Description","Actions"
+            "Budget Year", "Program/Admin", "Project", "Activity", "Amount", "Source","Description","Actions"
         ])
         self.TableofBudgets.horizontalHeader().setStretchLastSection(True)
         self.TableofBudgets.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
