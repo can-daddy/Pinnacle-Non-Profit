@@ -170,11 +170,7 @@ class MainWindow(QWidget):
         ContentArea = QStackedWidget()
         ContentArea.setStyleSheet("Background-color:White;")
         # Create the content area widgets
-        DashboardWidget = QWidget()
-        DashboardLayout = QVBoxLayout()
-        DashboardLabel = QLabel("Dashboard")
-        DashboardLayout.addWidget(DashboardLabel, alignment=Qt.AlignCenter)
-        DashboardWidget.setLayout(DashboardLayout)
+        DashboardWidget = DashboardPage()
         DonorsWidget = DonorsPage()
         FundsWidget = FundPage()
         BudgetsWidget = BudgetsPage()
@@ -2331,9 +2327,10 @@ class TransactionsPage(QWidget):
                 activity_input.setEnabled(False)
                 subcat_input.setEnabled(False)
             else:
-                fund_input.setVisible(False)
+                fund_input.setEnabled(False)
                 activity_input.setEnabled(True)
                 subcat_input.setEnabled(True)
+        
         type_input.currentIndexChanged.connect(on_type_changed)
         on_type_changed(type_input.currentIndex())
 
@@ -2342,26 +2339,40 @@ class TransactionsPage(QWidget):
             fund_id = fund_input.currentData()
             if fund_id:
                 conn = get_db_connection()
-                try:
-                    cur = conn.cursor()
-                    cur.execute("SELECT ProgramID, ProjectID FROM Fund WHERE FundID=?", (fund_id,))
-                    fund = cur.fetchone()
-                finally:
-                    conn.close()
-                # Set Program
-                if fund and fund["ProgramID"]:
-                    prog_idx = program_input.findData(fund["ProgramID"])
-                    if prog_idx >= 0:
-                        program_input.setCurrentIndex(prog_idx)
-                # Set Project
-                if fund and fund["ProjectID"]:
-                    # update_projects() already called by program_input change
-                    # But ensure project is set after update_projects
-                    def set_project():
-                        proj_idx = project_input.findData(fund["ProjectID"])
-                        if proj_idx >= 0:
-                            project_input.setCurrentIndex(proj_idx)
-                    QTimer.singleShot(0, set_project)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT ProgramID, ProjectID, BudgetYear FROM Fund WHERE FundID=?", (fund_id,))
+                fund = cur.fetchone()
+            finally:
+                conn.close()
+            # Set Program
+            if fund and fund["ProgramID"]:
+                prog_idx = program_input.findData(fund["ProgramID"])
+                if prog_idx >= 0:
+                    program_input.setCurrentIndex(prog_idx)
+                program_input.setEnabled(False)
+            else:
+                program_input.setEnabled(True) 
+            # Set Project
+            if fund and fund["ProjectID"]:
+                def set_project():
+                    proj_idx = project_input.findData(fund["ProjectID"])
+                    if proj_idx >= 0:
+                        project_input.setCurrentIndex(proj_idx)
+                QTimer.singleShot(0, set_project)
+                project_input.setEnabled(False)
+            else:
+                project_input.setEnabled(True)
+            # Set BudgetYear and disable
+            if fund and fund["BudgetYear"]:
+                year_idx = year_input.findText(str(fund["BudgetYear"]))
+                if year_idx >= 0:
+                 year_input.setCurrentIndex(year_idx)
+                year_input.setEnabled(False)
+            else:
+            # If no fund selected, enable BudgetYear for editing
+                year_input.setEnabled(True)
+       
         fund_input.currentIndexChanged.connect(on_fund_changed)
 
         # Save logic
@@ -2771,7 +2782,7 @@ class TransactionsPage(QWidget):
             try:
                 cur = conn.cursor()
                 # Delete from FundTransaction first (if exists)
-                cur.execute("DELETE FROM FundTransaction WHERE TransactionID=?", (transaction_id,))
+                cur.execute("DELETE FROM FundTransactions WHERE TransactionID=?", (transaction_id,))
                 # Then delete from Transactions
                 cur.execute("DELETE FROM Transactions WHERE TransactionID=?", (transaction_id,))
                 conn.commit()
@@ -2822,7 +2833,7 @@ class FundPage(QWidget):
         self.type_filter.setStyleSheet(FormStyles())
         self.type_filter.addItems(["All","Restricted","Unrestricted"])
         self.year_filter = QComboBox()
-        self.year_filter.addItems(generate_years(format_type="range", start_year=datetime.now().year, num_years=10))
+        self.year_filter.addItems(["All"] + generate_years(format_type="range", start_year=datetime.now().year, num_years=10))
         self.year_filter.setStyleSheet(FormStyles())
         TableHeaderLayout.addWidget(TableTitleLabel)
         TableHeaderLayout.addStretch()
@@ -2861,7 +2872,6 @@ class FundPage(QWidget):
         year_val = self.year_filter.currentText()
 
         # Query: Fund info + Donor + Program + Project + SUM of all related Transaction amounts for each Fund
-        # Group by FundID and BudgetYear to aggregate by both Fund and BudgetYear
         query = """
             SELECT 
                 f.FundID, 
@@ -2888,11 +2898,20 @@ class FundPage(QWidget):
         if year_val and year_val != "All":
             query += " AND f.BudgetYear = ?"
             params.append(year_val)
-        if search_text:
-            query += " AND (LOWER(f.FundName) LIKE ? OR LOWER(f.FundType) LIKE ? OR LOWER(d.Name) LIKE ? OR LOWER(pa.PA_Name) LIKE ? OR LOWER(p.ProjectName) LIKE ?)"
-            params.extend([f"%{search_text}%"] * 5)
-        # Group by FundID and BudgetYear
-        query += " GROUP BY f.FundID, f.BudgetYear"
+            # Always group by FundID to aggregate transactions for each fund
+            query += " GROUP BY f.FundID"
+            # If year filter is set, add BudgetYear condition
+            if year_val and year_val != "All":
+                query += " HAVING f.BudgetYear = ?"
+                params.append(year_val)
+            # If search is used, add it after GROUP BY/HAVING
+            if search_text:
+                if "HAVING" in query:
+                    query += " AND"
+                else:
+                    query += " HAVING"
+                    query += " (LOWER(f.FundName) LIKE ? OR LOWER(f.FundType) LIKE ? OR LOWER(d.Name) LIKE ? OR LOWER(pa.PA_Name) LIKE ? OR LOWER(p.ProjectName) LIKE ?)"
+                    params.extend([f"%{search_text}%"] * 5)
 
         conn = get_db_connection()
         try:
@@ -3369,10 +3388,9 @@ class BudgetsPage(QWidget):
 
         # Budget Year
         year_input = QComboBox()
-        current_year = QDate.currentDate().year()
-        years = [str(y) for y in range(current_year - 5, current_year + 6)]
+        years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
         year_input.addItems(years)
-        year_input.setCurrentText(str(current_year))
+        year_input.setCurrentText(str(datetime.now().year))
 
         # Program ComboBox
         program_input = QComboBox()
@@ -3442,15 +3460,17 @@ class BudgetsPage(QWidget):
         # Source (FundID)
         source_input = QComboBox()
         source_input.addItem("None", None)
+        fund_map = {}  # FundID -> fund row
         conn = get_db_connection()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT FundID, FundName FROM Fund")
+            cur.execute("SELECT FundID, FundName, FundType, ProgramID, ProjectID, BudgetYear FROM Fund")
             funds = cur.fetchall()
         finally:
             conn.close()
         for fund in funds:
             source_input.addItem(fund["FundName"], fund["FundID"])
+            fund_map[fund["FundID"]] = fund
 
         # Description
         description_input = QLineEdit()
@@ -3488,10 +3508,94 @@ class BudgetsPage(QWidget):
             fund_id = source_input.currentData()
             description = description_input.text().strip()
 
+            # Validation: Required fields
             if not year or not amount or not fund_id:
                 QMessageBox.warning(dlg, "Error", "Year, Amount, and Source (Fund) are required.")
                 return
 
+            # Validation: Uniqueness (BudgetYear, ProgramID, ProjectID, ActivityID)
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT 1 FROM Budget WHERE BudgetYear=? AND ProgramID=? AND ProjectID=? AND ActivityID=?",
+                    (year, program_id, project_id, activity_id)
+                )
+                if cur.fetchone():
+                    QMessageBox.warning(
+                        dlg, "Error",
+                        "A budget with the same Year, Program, Project, and Activity already exists. "
+                        "Each combination must be unique."
+                    )
+                    return
+            finally:
+                conn.close()
+
+            # Validation: FundType and Program/Project match for Restricted
+            fund = fund_map.get(fund_id)
+            if not fund:
+                QMessageBox.warning(dlg, "Error", "Selected fund not found.")
+                return
+            fund_type = fund["FundType"]
+            fund_prog = fund["ProgramID"]
+            fund_proj = fund["ProjectID"]
+            fund_year = fund["BudgetYear"]
+
+            if fund_type == "Restricted":
+                # Must match program and project
+                if (program_id != fund_prog) or (project_id != fund_proj):
+                    QMessageBox.warning(
+                        dlg, "Error",
+                        "For Restricted funds, the selected Program and Project must match those of the Fund.\n"
+                        f"Fund Program: {fund_prog}, Fund Project: {fund_proj}"
+                    )
+                    return
+                # Optionally, check year match
+                if str(year) != str(fund_year):
+                    QMessageBox.warning(
+                        dlg, "Error",
+                        "For Restricted funds, the Budget Year must match the Fund's Budget Year."
+                    )
+                    return
+            # For Unrestricted, allow any program/project
+
+            # Validation: Budget amount does not exceed available fund
+            # Sum all budgets for this fund (for all years/programs/projects/activities)
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT IFNULL(SUM(BudgetAmount),0) FROM Budget WHERE FundID=?",
+                    (fund_id,)
+                )
+                total_budgeted = cur.fetchone()[0]
+                # Get total fund amount (sum of all transactions for this fund)
+                cur.execute("""
+                    SELECT IFNULL(SUM(t.Amount),0)
+                    FROM FundTransactions ft
+                    JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                    WHERE ft.fund_id=?
+                """, (fund_id,))
+                total_fund = cur.fetchone()[0]
+            finally:
+                conn.close()
+            # If no transactions exist, treat fund as 0 (cannot allocate)
+            if total_fund == 0:
+                QMessageBox.warning(
+                    dlg, "Error",
+                    "No available funds for this source. Please add a fund transaction first."
+                )
+                return
+            # Check if new budget would exceed available fund
+            if total_budgeted + amount > total_fund:
+                QMessageBox.warning(
+                    dlg, "Error",
+                    f"Budget exceeds available fund amount.\n"
+                    f"Available: {total_fund - total_budgeted:.2f}, Requested: {amount:.2f}"
+                )
+                return
+
+            # Passed all validations, insert
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
@@ -3500,6 +3604,9 @@ class BudgetsPage(QWidget):
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (year, program_id, project_id, activity_id, amount, fund_id, description))
                 conn.commit()
+            except Exception as e:
+                QMessageBox.warning(dlg, "Error", f"Failed to add budget: {e}")
+                return
             finally:
                 conn.close()
             dlg.accept()
@@ -3613,16 +3720,18 @@ class BudgetsPage(QWidget):
         # Source (FundID)
         source_input = QComboBox()
         source_input.addItem("None", None)
+        fund_map = {}
         conn = get_db_connection()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT FundID, FundName FROM Fund")
+            cur.execute("SELECT FundID, FundName, FundType, ProgramID, ProjectID, BudgetYear FROM Fund")
             funds = cur.fetchall()
         finally:
             conn.close()
         fund_idx = 0
         for i, fund in enumerate(funds):
             source_input.addItem(fund["FundName"], fund["FundID"])
+            fund_map[fund["FundID"]] = fund
             if budget["FundID"] == fund["FundID"]:
                 fund_idx = i + 1
         source_input.setCurrentIndex(fund_idx)
@@ -3663,10 +3772,94 @@ class BudgetsPage(QWidget):
             fund_id = source_input.currentData()
             description = description_input.text().strip()
 
+            # Validation: Required fields
             if not year or not amount or not fund_id:
                 QMessageBox.warning(dlg, "Error", "Year, Amount, and Source (Fund) are required.")
                 return
 
+            # Validation: Uniqueness (BudgetYear, ProgramID, ProjectID, ActivityID) excluding current
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT 1 FROM Budget WHERE BudgetYear=? AND ProgramID=? AND ProjectID=? AND ActivityID=? AND BudgetID != ?",
+                    (year, program_id, project_id, activity_id, budget_id)
+                )
+                if cur.fetchone():
+                    QMessageBox.warning(
+                        dlg, "Error",
+                        "A budget with the same Year, Program, Project, and Activity already exists. "
+                        "Each combination must be unique."
+                    )
+                    return
+            finally:
+                conn.close()
+
+            # Validation: FundType and Program/Project match for Restricted
+            fund = fund_map.get(fund_id)
+            if not fund:
+                QMessageBox.warning(dlg, "Error", "Selected fund not found.")
+                return
+            fund_type = fund["FundType"]
+            fund_prog = fund["ProgramID"]
+            fund_proj = fund["ProjectID"]
+            fund_year = fund["BudgetYear"]
+
+            if fund_type == "Restricted":
+                # Must match program and project
+                if (program_id != fund_prog) or (project_id != fund_proj):
+                    QMessageBox.warning(
+                        dlg, "Error",
+                        "For Restricted funds, the selected Program and Project must match those of the Fund.\n"
+                        f"Fund Program: {fund_prog}, Fund Project: {fund_proj}"
+                    )
+                    return
+                # Optionally, check year match
+                if str(year) != str(fund_year):
+                    QMessageBox.warning(
+                        dlg, "Error",
+                        "For Restricted funds, the Budget Year must match the Fund's Budget Year."
+                    )
+                    return
+            # For Unrestricted, allow any program/project
+
+            # Validation: Budget amount does not exceed available fund
+            # Sum all budgets for this fund (for all years/programs/projects/activities), excluding current
+            conn = get_db_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT IFNULL(SUM(BudgetAmount),0) FROM Budget WHERE FundID=? AND BudgetID != ?",
+                    (fund_id, budget_id)
+                )
+                total_budgeted = cur.fetchone()[0]
+                # Get total fund amount (sum of all transactions for this fund)
+                cur.execute("""
+                    SELECT IFNULL(SUM(t.Amount),0)
+                    FROM FundTransactions ft
+                    JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                    WHERE ft.fund_id=?
+                """, (fund_id,))
+                total_fund = cur.fetchone()[0]
+            finally:
+                conn.close()
+            # If no transactions exist, treat fund as 0 (cannot allocate)
+            if total_fund == 0:
+                QMessageBox.warning(
+                    dlg, "Error",
+                    "No available funds for this source. Please add a fund transaction first."
+                )
+                return
+            # Check if new budget would exceed available fund
+            if total_budgeted + amount > total_fund:
+                QMessageBox.warning(
+                    dlg, "Error",
+                    f"Budget exceeds available fund amount.\n"
+                    f"Available: {total_fund - total_budgeted:.2f}, Requested: {amount:.2f}"
+                )
+                return
+
+            # Passed all validations, update
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
@@ -3675,6 +3868,9 @@ class BudgetsPage(QWidget):
                     WHERE BudgetID=?
                 """, (year, program_id, project_id, activity_id, amount, fund_id, description, budget_id))
                 conn.commit()
+            except Exception as e:
+                QMessageBox.warning(dlg, "Error", f"Failed to update budget: {e}")
+                return
             finally:
                 conn.close()
             dlg.accept()
@@ -3694,6 +3890,488 @@ class BudgetsPage(QWidget):
             finally:
                 conn.close()
             self.refresh_budget_table()
+
+class DashboardPage(QWidget):
+
+    def __init__(self):
+        super().__init__()
+        # Use a QScrollArea for vertical scrolling
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        # Modern scroll bar style
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                background: #f8f9fa;
+                width: 12px;
+                margin: 4px 0 4px 0;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: #007bff;
+                min-height: 30px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #0056b3;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar:horizontal {
+                background: #f8f9fa;
+                height: 12px;
+                margin: 0 4px 0 4px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #007bff;
+                min-width: 30px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #0056b3;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+        """)
+
+        # The actual content widget
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(18)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        # --- Fund Overview ---
+        fund_overview = self.fund_overview_widget()
+        layout.addWidget(fund_overview)
+
+        # --- Budget Summary ---
+        budget_summary = self.budget_summary_widget()
+        layout.addWidget(budget_summary)
+
+        # --- Transaction Summary ---
+        transaction_summary = self.transaction_summary_widget()
+        layout.addWidget(transaction_summary)
+
+        # --- Program & Projects Insights ---
+        program_insights = self.program_project_insights_widget()
+        layout.addWidget(program_insights)
+
+        layout.addStretch()
+
+        scroll.setWidget(content)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+
+    def fund_overview_widget(self):
+        group = QGroupBox()
+        group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 18px; 
+                font-weight: bold; 
+                color: #1B263B; 
+                border: 1.5px solid #007bff; 
+                border-radius: 8px; 
+                margin-top: 8px; 
+                padding-top: 18px;
+                
+            }
+        """)
+        lyt = QVBoxLayout(group)
+        lyt.setSpacing(12)
+        # Title
+        title = QLabel("Fund Overview (Current Year)")
+        title.setStyleSheet("""
+            font-size: 26px; 
+            font-weight: bold; 
+            color: #1B263B; 
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            margin-top: 8px;
+        """)
+        title.setAlignment(Qt.AlignLeft)
+        lyt.addWidget(title)
+        # Stats row
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(24)
+
+        year = str(datetime.now().year)
+        # Total funds received this year
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT IFNULL(SUM(t.Amount),0) as total
+                FROM FundTransactions ft
+                JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                WHERE t.BudgetYear LIKE ?
+            """, (f"{year}%",))
+            total_funds = cur.fetchone()["total"]
+
+            # Total budget allocated this year
+            cur.execute("""
+                SELECT IFNULL(SUM(BudgetAmount),0) as total
+                FROM Budget
+                WHERE BudgetYear LIKE ?
+            """, (f"{year}%",))
+            total_budget = cur.fetchone()["total"]
+
+            # Restricted/Unrestricted summary
+            cur.execute("""
+                SELECT FundType, IFNULL(SUM(t.Amount),0) as total
+                FROM Fund f
+                LEFT JOIN FundTransactions ft ON f.FundID = ft.fund_id
+                LEFT JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                WHERE f.BudgetYear LIKE ?
+                GROUP BY FundType
+            """, (f"{year}%",))
+            fund_types = {row["FundType"]: row["total"] for row in cur.fetchall()}
+        finally:
+            conn.close()
+
+        # Funds available = funds received - budget allocated
+        available = total_funds - total_budget
+
+        def stat_box(label, value, color="#007bff"):
+            w = QWidget()
+            l = QVBoxLayout(w)
+            l.setSpacing(2)
+            l.setContentsMargins(12, 8, 12, 8)
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 13px; color: #555;")
+            val = QLabel(f"{value:,.2f}")
+            val.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {color};")
+            l.addWidget(lbl)
+            l.addWidget(val)
+            return w
+
+        stats_row.addWidget(stat_box("Funds Received", total_funds, "#007bff"))
+        stats_row.addWidget(stat_box("Budget Allocated", total_budget, "#28a745"))
+        stats_row.addWidget(stat_box("Funds Available", available, "#dc3545"))
+        stats_row.addWidget(stat_box("Restricted Funds", fund_types.get("Restricted", 0), "#6f42c1"))
+        stats_row.addWidget(stat_box("Unrestricted Funds", fund_types.get("Unrestricted", 0), "#17a2b8"))
+        stats_row.addStretch()
+        lyt.addLayout(stats_row)
+        return group
+
+    def budget_summary_widget(self):
+        group = QGroupBox()
+        group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 18px; 
+                font-weight: bold; 
+                color: #1B263B; 
+                border: 1.5px solid #28a745; 
+                border-radius: 8px; 
+                margin-top: 8px; 
+                padding-top: 18px;
+            }
+        """)
+        lyt = QVBoxLayout(group)
+        lyt.setSpacing(12)
+        # Title
+        title = QLabel("Budget Summary")
+        title.setStyleSheet("""
+            font-size: 26px; 
+            font-weight: bold; 
+            color: #1B263B; 
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            margin-top: 8px;
+        """)
+        title.setAlignment(Qt.AlignLeft)
+        lyt.addWidget(title)
+        # Stats row
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(24)
+
+        year = str(datetime.now().year)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            # Total budget allocated this year
+            cur.execute("SELECT IFNULL(SUM(BudgetAmount),0) as total FROM Budget WHERE BudgetYear LIKE ?", (f"{year}%",))
+            total_budget = cur.fetchone()["total"]
+            # Total expenses this year (sum of Expense transactions for this year)
+            cur.execute("""
+                SELECT IFNULL(SUM(Amount),0) as total
+                FROM Transactions
+                WHERE TransactionType='Expense' AND BudgetYear LIKE ?
+            """, (f"{year}%",))
+            total_expense = cur.fetchone()["total"]
+            # Utilized %
+            utilized_pct = (total_expense / total_budget * 100) if total_budget else 0
+
+            # Budget by Program/Project/Activity
+            cur.execute("""
+                SELECT pa.PA_Name, IFNULL(SUM(b.BudgetAmount),0) as total
+                FROM Budget b
+                LEFT JOIN Program_administrations pa ON b.ProgramID = pa.PA_Id
+                WHERE b.BudgetYear LIKE ?
+                GROUP BY pa.PA_Name
+            """, (f"{year}%",))
+            prog_budgets = [(row["PA_Name"] or "N/A", row["total"]) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+        # Budget summary
+        def stat_box(label, value, color="#28a745"):
+            w = QWidget()
+            l = QVBoxLayout(w)
+            l.setSpacing(2)
+            l.setContentsMargins(12, 8, 12, 8)
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 13px; color: #555;")
+            val = QLabel(f"{value:,.2f}")
+            val.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {color};")
+            l.addWidget(lbl)
+            l.addWidget(val)
+            return w
+
+        stats_row.addWidget(stat_box("Total Budget", total_budget, "#28a745"))
+        stats_row.addWidget(stat_box("Utilized", total_expense, "#007bff"))
+        stats_row.addWidget(stat_box("Remaining", total_budget - total_expense, "#dc3545"))
+        # Utilized meter
+        meter = QWidget()
+        meter_lyt = QVBoxLayout(meter)
+        meter_lyt.setContentsMargins(0, 0, 0, 0)
+        meter_lyt.setSpacing(2)
+        meter_lyt.addWidget(QLabel("Utilized %"))
+        pb = QProgressBar()
+        pb.setValue(int(utilized_pct))
+        pb.setFormat("%.1f%%" % utilized_pct)
+        pb.setStyleSheet("QProgressBar {height: 18px; border-radius: 8px;} QProgressBar::chunk {background-color: #007bff; border-radius: 8px;}")
+        meter_lyt.addWidget(pb)
+        stats_row.addWidget(meter)
+
+        lyt.addLayout(stats_row)
+
+        # Mini-chart: Budget by Program (horizontal bar)
+        chart = QWidget()
+        chart_lyt = QVBoxLayout(chart)
+        chart_lyt.setContentsMargins(0, 0, 0, 0)
+        chart_lyt.setSpacing(2)
+        chart_lyt.addWidget(QLabel("Budget by Program"))
+        for name, val in prog_budgets:
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            lbl = QLabel(name)
+            lbl.setFixedWidth(90)
+            bar = QProgressBar()
+            bar.setMaximum(int(total_budget) if total_budget else 1)
+            bar.setValue(int(val))
+            bar.setFormat(f"{val:,.0f}")
+            bar.setStyleSheet("QProgressBar {height: 12px; border-radius: 6px;} QProgressBar::chunk {background-color: #17a2b8; border-radius: 6px;}")
+            row.addWidget(lbl)
+            row.addWidget(bar)
+            chart_lyt.addLayout(row)
+        lyt.addWidget(chart)
+        lyt.addStretch()
+        return group
+
+    def transaction_summary_widget(self):
+        group = QGroupBox()
+        group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 18px; 
+                font-weight: bold; 
+                color: #1B263B; 
+                border: 1.5px solid #17a2b8; 
+                border-radius: 8px; 
+                margin-top: 8px; 
+                padding-top: 18px;
+                min-height: 300px;
+            }
+        """)
+        lyt = QVBoxLayout(group)
+        lyt.setSpacing(12)
+        # Title
+        title = QLabel("Transaction Summary")
+        title.setStyleSheet("""
+            font-size: 26px; 
+            font-weight: bold; 
+            color: #1B263B; 
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            margin-top: 8px;
+        """)
+        title.setAlignment(Qt.AlignLeft)
+        lyt.addWidget(title)
+        # Stats row
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(24)
+
+        year = str(datetime.now().year)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            # Funds vs Expenses
+            cur.execute("""
+                SELECT TransactionType, IFNULL(SUM(Amount),0) as total
+                FROM Transactions
+                WHERE BudgetYear LIKE ?
+                GROUP BY TransactionType
+            """, (f"{year}%",))
+            tx_types = {row["TransactionType"]: row["total"] for row in cur.fetchall()}
+            funds = tx_types.get("Funds", 0)
+            expenses = tx_types.get("Expense", 0)
+            # Recent 5 transactions
+            cur.execute("""
+                SELECT TransactionDate, TransactionType, Amount, Reference
+                FROM Transactions
+                WHERE BudgetYear LIKE ?
+                ORDER BY TransactionDate DESC, TransactionID DESC
+                LIMIT 5
+            """, (f"{year}%",))
+            recent = cur.fetchall()
+        finally:
+            conn.close()
+
+        # Funds vs Expenses overview
+        funds_lbl = QLabel(f"Funds: {funds:,.2f}")
+        funds_lbl.setStyleSheet("font-size: 16px; color: #007bff; font-weight: bold;")
+        expenses_lbl = QLabel(f"Expenses: {expenses:,.2f}")
+        expenses_lbl.setStyleSheet("font-size: 16px; color: #dc3545; font-weight: bold;")
+        stats_row.addWidget(funds_lbl)
+        stats_row.addWidget(expenses_lbl)
+        lyt.addLayout(stats_row)
+
+        # Mini-table for recent transactions
+        table = QTableWidget()
+        table.setStyleSheet(TableStyles())
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Date", "Type", "Amount", "Reference"])
+        table.setRowCount(len(recent))
+        table.setStyleSheet("font-size: 12px;")
+        table.setMaximumHeight(120)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for i, row in enumerate(recent):
+            table.setItem(i, 0, QTableWidgetItem(row["TransactionDate"] or ""))
+            table.setItem(i, 1, QTableWidgetItem(row["TransactionType"] or ""))
+            table.setItem(i, 2, QTableWidgetItem(f"{row['Amount']:,.2f}"))
+            table.setItem(i, 3, QTableWidgetItem(row["Reference"] or ""))
+        lyt.addWidget(table)
+        lyt.addStretch()
+        return group
+
+    def program_project_insights_widget(self):
+        group = QGroupBox()
+        group.setStyleSheet("""
+            QGroupBox { 
+                font-size: 18px; 
+                font-weight: bold; 
+                color: #1B263B; 
+                border: 1.5px solid #6f42c1; 
+                border-radius: 8px; 
+                margin-top: 8px; 
+                padding-top: 18px;
+                min-height: 300px;
+            }
+        """)
+        lyt = QVBoxLayout(group)
+        lyt.setSpacing(12)
+        # Title
+        title = QLabel("Programs & Projects Insights")
+        title.setStyleSheet("""
+            font-size: 26px; 
+            font-weight: bold; 
+            color: #1B263B; 
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            margin-top: 8px;
+        """)
+        title.setAlignment(Qt.AlignLeft)
+        lyt.addWidget(title)
+        # Stats row
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(24)
+
+        year = str(datetime.now().year)
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            # Program count
+            cur.execute("SELECT COUNT(*) as cnt FROM Program_administrations")
+            prog_count = cur.fetchone()["cnt"]
+            # Project count
+            cur.execute("SELECT COUNT(*) as cnt FROM Projects")
+            proj_count = cur.fetchone()["cnt"]
+            # Highest spending program
+            cur.execute("""
+                SELECT pa.PA_Name, IFNULL(SUM(t.Amount),0) as total
+                FROM Transactions t
+                LEFT JOIN Program_administrations pa ON t.ProgramID = pa.PA_Id
+                WHERE t.TransactionType='Expense' AND t.BudgetYear LIKE ?
+                GROUP BY pa.PA_Name
+                ORDER BY total DESC LIMIT 1
+            """, (f"{year}%",))
+            row = cur.fetchone()
+            highest_prog = row["PA_Name"] if row else "N/A"
+            highest_prog_amt = row["total"] if row else 0
+
+            # Budget status per program
+            cur.execute("""
+                SELECT pa.PA_Name,
+                    IFNULL(SUM(b.BudgetAmount),0) as budgeted,
+                    IFNULL(SUM(t.Amount),0) as spent
+                FROM Program_administrations pa
+                LEFT JOIN Budget b ON pa.PA_Id = b.ProgramID AND b.BudgetYear LIKE ?
+                LEFT JOIN Transactions t ON pa.PA_Id = t.ProgramID AND t.TransactionType='Expense' AND t.BudgetYear LIKE ?
+                GROUP BY pa.PA_Name
+            """, (f"{year}%", f"{year}%"))
+            prog_stats = cur.fetchall()
+        finally:
+            conn.close()
+
+        # Stat boxes
+        def stat_box(label, value, color="#6f42c1"):
+            w = QWidget()
+            l = QVBoxLayout(w)
+            l.setSpacing(2)
+            l.setContentsMargins(12, 8, 12, 8)
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 13px; color: #555;")
+            val = QLabel(str(value))
+            val.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {color};")
+            l.addWidget(lbl)
+            l.addWidget(val)
+            return w
+
+        stats_row.addWidget(stat_box("Programs", prog_count, "#6f42c1"))
+        stats_row.addWidget(stat_box("Projects", proj_count, "#17a2b8"))
+        stats_row.addWidget(stat_box("Highest Spending Program", highest_prog, "#dc3545"))
+        stats_row.addWidget(stat_box("Amount", f"{highest_prog_amt:,.2f}", "#dc3545"))
+        lyt.addLayout(stats_row)
+
+        # Mini-table: Budget status per program
+        table = QTableWidget()
+        table.setStyleSheet(TableStyles())
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Program", "Budgeted", "Spent", "Utilized %"])
+        table.setRowCount(len(prog_stats))
+        table.setStyleSheet("font-size: 12px;")
+        table.setMaximumHeight(120)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for i, row in enumerate(prog_stats):
+            budgeted = row["budgeted"]
+            spent = row["spent"]
+            pct = (spent / budgeted * 100) if budgeted else 0
+            table.setItem(i, 0, QTableWidgetItem(row["PA_Name"] or ""))
+            table.setItem(i, 1, QTableWidgetItem(f"{budgeted:,.2f}"))
+            table.setItem(i, 2, QTableWidgetItem(f"{spent:,.2f}"))
+            table.setItem(i, 3, QTableWidgetItem(f"{pct:.1f}%"))
+        lyt.addWidget(table)
+        lyt.addStretch()
+        return group
+
 
 # Styles and General Design
 class Links(QPushButton):
