@@ -4,6 +4,11 @@ from PyQt5.QtGui import *
 import sqlite3
 import sys
 from datetime import datetime
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 
 # Create a connection to the SQLite database
@@ -2339,40 +2344,38 @@ class TransactionsPage(QWidget):
             fund_id = fund_input.currentData()
             if fund_id:
                 conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("SELECT ProgramID, ProjectID, BudgetYear FROM Fund WHERE FundID=?", (fund_id,))
-                fund = cur.fetchone()
-            finally:
-                conn.close()
-            # Set Program
-            if fund and fund["ProgramID"]:
-                prog_idx = program_input.findData(fund["ProgramID"])
-                if prog_idx >= 0:
-                    program_input.setCurrentIndex(prog_idx)
-                program_input.setEnabled(False)
-            else:
-                program_input.setEnabled(True) 
-            # Set Project
-            if fund and fund["ProjectID"]:
-                def set_project():
-                    proj_idx = project_input.findData(fund["ProjectID"])
-                    if proj_idx >= 0:
-                        project_input.setCurrentIndex(proj_idx)
-                QTimer.singleShot(0, set_project)
-                project_input.setEnabled(False)
-            else:
-                project_input.setEnabled(True)
-            # Set BudgetYear and disable
-            if fund and fund["BudgetYear"]:
-                year_idx = year_input.findText(str(fund["BudgetYear"]))
-                if year_idx >= 0:
-                 year_input.setCurrentIndex(year_idx)
-                year_input.setEnabled(False)
-            else:
-            # If no fund selected, enable BudgetYear for editing
-                year_input.setEnabled(True)
-       
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT ProgramID, ProjectID, BudgetYear FROM Fund WHERE FundID=?", (fund_id,))
+                    fund = cur.fetchone()
+                finally:
+                    conn.close()
+                # Set Program
+                if fund and fund["ProgramID"]:
+                    prog_idx = program_input.findData(fund["ProgramID"])
+                    if prog_idx >= 0:
+                        program_input.setCurrentIndex(prog_idx)
+                    program_input.setEnabled(False)
+                else:
+                    program_input.setEnabled(True) 
+                # Set Project
+                if fund and fund["ProjectID"]:
+                    def set_project():
+                        proj_idx = project_input.findData(fund["ProjectID"])
+                        if proj_idx >= 0:
+                            project_input.setCurrentIndex(proj_idx)
+                    QTimer.singleShot(0, set_project)
+                    project_input.setEnabled(False)
+                else:
+                    project_input.setEnabled(True)
+                # Set BudgetYear and disable
+                if fund and fund["BudgetYear"]:
+                    year_idx = year_input.findText(str(fund["BudgetYear"]))
+                    if year_idx >= 0:
+                        year_input.setCurrentIndex(year_idx)
+                    year_input.setEnabled(False)
+                else:
+                    year_input.setEnabled(True)
         fund_input.currentIndexChanged.connect(on_fund_changed)
 
         # Save logic
@@ -2406,7 +2409,40 @@ class TransactionsPage(QWidget):
                 if not activity_id or not subcat_id:
                     QMessageBox.warning(dlg, "Error", "Activity and Subcategory are required for Expense transaction.")
                     return
-
+            # If Expense, validate against Budget
+            if ttype == "Expense":
+                # Check for matching budget
+                conn2 = get_db_connection()
+                try:
+                    cur2 = conn2.cursor()
+                    cur2.execute("""
+                        SELECT BudgetAmount
+                        FROM Budget
+                        WHERE BudgetYear=? AND ProgramID=? AND ProjectID=? AND ActivityID=?
+                    """, (year, program_id, project_id, activity_id))
+                    budget_row = cur2.fetchone()
+                    if not budget_row:
+                        QMessageBox.warning(dlg, "Error", "No budget allocated for the selected Year, Program, Project, and Activity. Please allocate a budget first.")
+                        return
+                    budget_amount = budget_row["BudgetAmount"]
+                    # Sum all expenses for this budget
+                    cur2.execute("""
+                        SELECT IFNULL(SUM(Amount),0) as total_expense
+                        FROM Transactions
+                        WHERE TransactionType='Expense'
+                          AND BudgetYear=? AND ProgramID=? AND ProjectID=? AND ActivityID=?
+                    """, (year, program_id, project_id, activity_id))
+                    total_expense = cur2.fetchone()["total_expense"]
+                    # Check if new expense would exceed budget
+                    if total_expense + amount > budget_amount:
+                        QMessageBox.warning(
+                            dlg, "Error",
+                            f"Expense exceeds allocated budget.\n"
+                            f"Budget: {budget_amount:.2f}, Already Spent: {total_expense:.2f}, Requested: {amount:.2f}"
+                        )
+                        return
+                finally:
+                    conn2.close()
             conn = get_db_connection()
             try:
                 cur = conn.cursor()
@@ -2729,6 +2765,41 @@ class TransactionsPage(QWidget):
             if not tdate or not year or not ttype or not amount or not program_id or not project_id:
                 QMessageBox.warning(dlg, "Error", "Date, Year, Type, Amount, Program, and Project are required.")
                 return
+            # If Expense, validate against Budget
+            if ttype == "Expense":
+                # Check for matching budget
+                conn2 = get_db_connection()
+                try:
+                    cur2 = conn2.cursor()
+                    cur2.execute("""
+                        SELECT BudgetAmount
+                        FROM Budget
+                        WHERE BudgetYear=? AND ProgramID=? AND ProjectID=? AND ActivityID=?
+                    """, (year, program_id, project_id, activity_id))
+                    budget_row = cur2.fetchone()
+                    if not budget_row:
+                        QMessageBox.warning(dlg, "Error", "No budget allocated for the selected Year, Program, Project, and Activity. Please allocate a budget first.")
+                        return
+                    budget_amount = budget_row["BudgetAmount"]
+                    # Sum all expenses for this budget, excluding this transaction
+                    cur2.execute("""
+                        SELECT IFNULL(SUM(Amount),0) as total_expense
+                        FROM Transactions
+                        WHERE TransactionType='Expense'
+                          AND BudgetYear=? AND ProgramID=? AND ProjectID=? AND ActivityID=?
+                          AND TransactionID != ?
+                    """, (year, program_id, project_id, activity_id, transaction_id))
+                    total_expense = cur2.fetchone()["total_expense"]
+                    # Check if new expense would exceed budget
+                    if total_expense + amount > budget_amount:
+                        QMessageBox.warning(
+                            dlg, "Error",
+                            f"Expense exceeds allocated budget.\n"
+                            f"Budget: {budget_amount:.2f}, Already Spent: {total_expense:.2f}, Requested: {amount:.2f}"
+                        )
+                        return
+                finally:
+                    conn2.close()
             if ttype == "Funds":
                 if not fund_id:
                     QMessageBox.warning(dlg, "Error", "Fund is required for Funds transaction.")
@@ -2930,8 +3001,8 @@ class FundPage(QWidget):
             table.setItem(row_idx, 1, QTableWidgetItem(str(fund["BudgetYear"]) if fund["BudgetYear"] else ""))
             table.setItem(row_idx, 2, QTableWidgetItem(fund["Date"] or ""))
             table.setItem(row_idx, 3, QTableWidgetItem(fund["DonorName"] or ""))
-            table.setItem(row_idx, 4, QTableWidgetItem(fund["ProgramName"] or ""))
-            table.setItem(row_idx, 5, QTableWidgetItem(fund["ProjectName"] or ""))
+            table.setItem(row_idx, 4, QTableWidgetItem(fund["ProgramName"] if fund["ProgramName"] else "All Programs"))
+            table.setItem(row_idx, 5, QTableWidgetItem(fund["ProjectName"] if fund["ProjectName"] else "All Projects"))
             table.setItem(row_idx, 6, QTableWidgetItem(fund["FundType"] or ""))
             table.setItem(row_idx, 7, QTableWidgetItem(str(fund["TotalAmount"])))
             action_widget = QWidget()
@@ -2972,7 +3043,7 @@ class FundPage(QWidget):
             donor_list = cur.fetchall()
         finally:
             conn.close()
-        donor_combo.addItem("None", None)
+        donor_combo.addItem("Choose a Donor", None)
         for d in donor_list:
             donor_combo.addItem(d["Name"], d["DonorID"])
         # Program ComboBox
@@ -2985,34 +3056,55 @@ class FundPage(QWidget):
             program_list = cur.fetchall()
         finally:
             conn.close()
-        program_combo.addItem("None", None)
+        program_combo.addItem("All Programs", None)
         for prog in program_list:
             program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
         # Project ComboBox (filtered by program)
         project_combo = QComboBox()
-        project_combo.addItem("None", None)
+        project_combo.addItem("All Projects", None)
         def update_projects():
             project_combo.blockSignals(True)
             project_combo.clear()
-            project_combo.addItem("None", None)
             prog_id = program_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if prog_id:
+            # If ProgramID is None, only allow Project None and disable the combo
+            if prog_id is None:
+                project_combo.addItem("All Projects", None)
+                project_combo.setEnabled(False)
+            else:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
                     cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
-                else:
-                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
-                projects = cur.fetchall()
-            finally:
-                conn.close()
-            for proj in projects:
-                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+                    projects = cur.fetchall()
+                finally:
+                    conn.close()
+                project_combo.addItem("All Projects", None)
+                for proj in projects:
+                    project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+                project_combo.setEnabled(True)
             project_combo.blockSignals(False)
+
         update_projects()
         program_combo.currentIndexChanged.connect(update_projects)
         fundtype_input = QComboBox()
         fundtype_input.addItems(["Restricted", "Unrestricted"])
+
+        # If both program and project are None, set Unrestricted and disable FundType selection
+        def update_fundtype():
+            prog_id = program_combo.currentData()
+            proj_id = project_combo.currentData()
+            idx = fundtype_input.findText("Unrestricted")
+            if prog_id is None and proj_id is None:
+                if idx >= 0:
+                    fundtype_input.setCurrentIndex(idx)
+                fundtype_input.setEnabled(False)
+            else:
+                fundtype_input.setEnabled(True)
+
+        # Call on startup and whenever program/project changes
+        program_combo.currentIndexChanged.connect(update_fundtype)
+        project_combo.currentIndexChanged.connect(update_fundtype)
+        update_fundtype()
         form.addRow("Name:", name_input)
         form.addRow("Budget Year:", year_input)
         form.addRow("Initial Date:", date_input)
@@ -3038,8 +3130,9 @@ class FundPage(QWidget):
             program_id = program_combo.currentData()
             project_id = project_combo.currentData()
             fundtype = fundtype_input.currentText().strip()
-            if not name or not fundtype or not budget_year or not program_id or not project_id:
-                QMessageBox.warning(dlg, "Error", "Name, Budget Year, FundType, Program, and Project are required.")
+            # Allow program_id and project_id to be None (null)
+            if not name or not fundtype or not budget_year:
+                QMessageBox.warning(dlg, "Error", "Name, Budget Year, and FundType are required.")
                 return
             # Uniqueness validation for FundName
             try:
@@ -3084,7 +3177,7 @@ class FundPage(QWidget):
         # Name
         name_input = QLineEdit(fund["FundName"])
 
-        # Budget Year
+        # Budget Year (required)
         year_input = QComboBox()
         years = generate_years(format_type="range", start_year=datetime.now().year, num_years=10)
         year_input.addItems(years)
@@ -3092,6 +3185,8 @@ class FundPage(QWidget):
             idx = year_input.findText(str(fund["BudgetYear"]))
             if idx >= 0:
                 year_input.setCurrentIndex(idx)
+        else:
+            year_input.setCurrentText(str(datetime.now().year))
 
         # initialDate (date) input
         date_input = QDateEdit()
@@ -3111,12 +3206,12 @@ class FundPage(QWidget):
             donor_list = cur2.fetchall()
         finally:
             conn2.close()
-        donor_combo.addItem("None", None)
+        donor_combo.addItem("Choose a Donor", None)
         idx = 0
         for i, d in enumerate(donor_list):
             donor_combo.addItem(d["Name"], d["DonorID"])
             if fund["DonorId"] == d["DonorID"]:
-                idx = i + 1  # +1 for "None"
+                idx = i + 1  # +1 for "Choose a Donor"
         donor_combo.setCurrentIndex(idx)
 
         # Program ComboBox
@@ -3129,7 +3224,7 @@ class FundPage(QWidget):
             program_list = cur3.fetchall()
         finally:
             conn3.close()
-        program_combo.addItem("None", None)
+        program_combo.addItem("All Programs", None)
         prog_idx = 0
         for i, prog in enumerate(program_list):
             program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
@@ -3139,39 +3234,57 @@ class FundPage(QWidget):
 
         # Project ComboBox (filtered by program)
         project_combo = QComboBox()
-        project_combo.addItem("None", None)
+        project_combo.addItem("All Projects", None)
         def update_projects():
             project_combo.blockSignals(True)
             project_combo.clear()
-            project_combo.addItem("None", None)
             prog_id = program_combo.currentData()
-            conn = get_db_connection()
-            try:
-                cur = conn.cursor()
-                if prog_id:
+            if prog_id is None:
+                project_combo.addItem("All Projects", None)
+                project_combo.setEnabled(False)
+            else:
+                conn = get_db_connection()
+                try:
+                    cur = conn.cursor()
                     cur.execute("SELECT ProjectID, ProjectName FROM Projects WHERE ProgramID=?", (prog_id,))
-                else:
-                    cur.execute("SELECT ProjectID, ProjectName FROM Projects")
-                projects = cur.fetchall()
-            finally:
-                conn.close()
+                    projects = cur.fetchall()
+                finally:
+                    conn.close()
+                project_combo.addItem("All Projects", None)
+                for proj in projects:
+                    project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+                project_combo.setEnabled(True)
+            # Set current index to match fund["ProjectID"]
             proj_idx = 0
-            for i, proj in enumerate(projects):
-                project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
-                if fund["ProjectID"] == proj["ProjectID"]:
-                    proj_idx = i + 1
+            for i in range(project_combo.count()):
+                if project_combo.itemData(i) == fund["ProjectID"]:
+                    proj_idx = i
+                    break
             project_combo.setCurrentIndex(proj_idx)
             project_combo.blockSignals(False)
         update_projects()
         program_combo.currentIndexChanged.connect(update_projects)
 
-        # FundType ComboBox
         fundtype_input = QComboBox()
         fundtype_input.addItems(["Restricted", "Unrestricted"])
-        if fund["FundType"]:
-            idx = fundtype_input.findText(fund["FundType"])
-            if idx >= 0:
-                fundtype_input.setCurrentIndex(idx)
+        idx = fundtype_input.findText(fund["FundType"])
+        if idx >= 0:
+            fundtype_input.setCurrentIndex(idx)
+
+        # If both program and project are None, set Unrestricted and disable FundType selection
+        def update_fundtype():
+            prog_id = program_combo.currentData()
+            proj_id = project_combo.currentData()
+            idx = fundtype_input.findText("Unrestricted")
+            if prog_id is None and proj_id is None:
+                if idx >= 0:
+                    fundtype_input.setCurrentIndex(idx)
+                fundtype_input.setEnabled(False)
+            else:
+                fundtype_input.setEnabled(True)
+        program_combo.currentIndexChanged.connect(update_fundtype)
+        project_combo.currentIndexChanged.connect(update_fundtype)
+        update_fundtype()
 
         form.addRow("Name:", name_input)
         form.addRow("Budget Year:", year_input)
@@ -3192,6 +3305,7 @@ class FundPage(QWidget):
         cancel_btn.clicked.connect(dlg.reject)
 
         def save():
+            conn = get_db_connection()
             name = name_input.text().strip()
             budget_year = year_input.currentText()
             initial_date = date_input.date().toString("yyyy-MM-dd")
@@ -3199,30 +3313,32 @@ class FundPage(QWidget):
             program_id = program_combo.currentData()
             project_id = project_combo.currentData()
             fundtype = fundtype_input.currentText().strip()
-            if not name or not fundtype or not budget_year or not program_id or not project_id:
-                QMessageBox.warning(dlg, "Error", "Name, Budget Year, FundType, Program, and Project are required.")
+            # Validation: Name, Budget Year, FundType required
+            if not name or not fundtype or not budget_year:
+                QMessageBox.warning(dlg, "Error", "Name, Budget Year, and FundType are required.")
                 return
+            # If both program and project are None, force Unrestricted
+            if program_id is None and project_id is None:
+                fundtype = "Unrestricted"
             # Uniqueness validation for FundName (excluding current fund)
-            conn4 = get_db_connection()
             try:
-                cur4 = conn4.cursor()
-                cur4.execute("SELECT 1 FROM Fund WHERE FundName = ? AND FundID != ?", (name, fund_id))
-                if cur4.fetchone():
+                cur = conn.cursor()
+                cur.execute("SELECT 1 FROM Fund WHERE FundName = ? AND FundID != ?", (name, fund_id))
+                if cur.fetchone():
                     QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
                     return
-                cur4.execute(
+                cur.execute(
                     "UPDATE Fund SET FundName=?, DonorId=?, BudgetYear=?, ProgramID=?, ProjectID=?, FundType=?, initialDate=? WHERE FundID=?",
                     (name, donor_id, budget_year, program_id, project_id, fundtype, initial_date, fund_id)
                 )
-                conn4.commit()
+                conn.commit()
             except sqlite3.IntegrityError:
                 QMessageBox.warning(dlg, "Error", "Fund Name must be unique. This name already exists.")
                 return
             finally:
-                conn4.close()
+                conn.close()
             dlg.accept()
             self.refresh_fund_table()
-
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -3542,12 +3658,12 @@ class BudgetsPage(QWidget):
             fund_year = fund["BudgetYear"]
 
             if fund_type == "Restricted":
-                # Must match program and project
-                if (program_id != fund_prog) or (project_id != fund_proj):
+                # Must match program and project, or if fund's Project is None, allow any project under the same program
+                if program_id != fund_prog or (fund_proj is not None and project_id != fund_proj):
                     QMessageBox.warning(
                         dlg, "Error",
-                        "For Restricted funds, the selected Program and Project must match those of the Fund.\n"
-                        f"Fund Program: {fund_prog}, Fund Project: {fund_proj}"
+                        "For Restricted funds, the selected Program must match the Fund's Program, "
+                        "and the Project must match the Fund's Project unless the Fund is for all projects under the Program."
                     )
                     return
                 # Optionally, check year match
@@ -3963,7 +4079,6 @@ class DashboardPage(QWidget):
         program_insights = self.program_project_insights_widget()
         layout.addWidget(program_insights)
 
-        layout.addStretch()
 
         scroll.setWidget(content)
 
@@ -3972,6 +4087,8 @@ class DashboardPage(QWidget):
         main_layout.addWidget(scroll)
 
     def fund_overview_widget(self):
+        
+
         group = QGroupBox()
         group.setStyleSheet("""
             QGroupBox { 
@@ -3982,7 +4099,6 @@ class DashboardPage(QWidget):
                 border-radius: 8px; 
                 margin-top: 8px; 
                 padding-top: 18px;
-                
             }
         """)
         lyt = QVBoxLayout(group)
@@ -3999,15 +4115,13 @@ class DashboardPage(QWidget):
         """)
         title.setAlignment(Qt.AlignLeft)
         lyt.addWidget(title)
-        # Stats row
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(24)
 
         year = str(datetime.now().year)
-        # Total funds received this year
+        # Data fetch
         conn = get_db_connection()
         try:
             cur = conn.cursor()
+            # Total funds received this year
             cur.execute("""
                 SELECT IFNULL(SUM(t.Amount),0) as total
                 FROM FundTransactions ft
@@ -4037,9 +4151,13 @@ class DashboardPage(QWidget):
         finally:
             conn.close()
 
-        # Funds available = funds received - budget allocated
         available = total_funds - total_budget
+        restricted = fund_types.get("Restricted", 0)
+        unrestricted = fund_types.get("Unrestricted", 0)
 
+        # --- Stat Row (Professional, concise) ---
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(24)
         def stat_box(label, value, color="#007bff"):
             w = QWidget()
             l = QVBoxLayout(w)
@@ -4052,14 +4170,59 @@ class DashboardPage(QWidget):
             l.addWidget(lbl)
             l.addWidget(val)
             return w
-
         stats_row.addWidget(stat_box("Funds Received", total_funds, "#007bff"))
         stats_row.addWidget(stat_box("Budget Allocated", total_budget, "#28a745"))
         stats_row.addWidget(stat_box("Funds Available", available, "#dc3545"))
-        stats_row.addWidget(stat_box("Restricted Funds", fund_types.get("Restricted", 0), "#6f42c1"))
-        stats_row.addWidget(stat_box("Unrestricted Funds", fund_types.get("Unrestricted", 0), "#17a2b8"))
+        stats_row.addWidget(stat_box("Restricted", restricted, "#6f42c1"))
+        stats_row.addWidget(stat_box("Unrestricted", unrestricted, "#17a2b8"))
         stats_row.addStretch()
+
+        # --- Layout: Stats, then charts side by side ---
         lyt.addLayout(stats_row)
+
+        # --- Matplotlib Pie Chart: Restricted vs Unrestricted ---
+        pie_fig = Figure(figsize=(2.5, 2.5))
+        pie_canvas = FigureCanvas(pie_fig)
+        ax1 = pie_fig.add_subplot(111)
+        pie_labels = ["Restricted", "Unrestricted"]
+        pie_values = [restricted, unrestricted]
+        pie_colors = ["#6f42c1", "#17a2b8"]
+        wedges, texts, autotexts = ax1.pie(
+            pie_values,
+            labels=pie_labels,
+            autopct='%1.1f%%',
+            colors=pie_colors,
+            startangle=90,
+            textprops={'color': "white", 'fontsize': 10}
+        )
+        ax1.set_title("Restricted vs Unrestricted Funds", fontsize=12)
+        ax1.axis('equal')
+        pie_fig.tight_layout()
+
+        # --- Matplotlib Bar Chart: Funds Received vs Budget Allocated vs Available ---
+        bar_fig = Figure(figsize=(4, 2.5))
+        bar_canvas = FigureCanvas(bar_fig)
+        ax2 = bar_fig.add_subplot(111)
+        bar_labels = ["Received", "Allocated", "Available"]
+        bar_values = [total_funds, total_budget, available]
+        bar_colors = ["#007bff", "#28a745", "#dc3545"]
+        bars = ax2.bar(bar_labels, bar_values, color=bar_colors)
+        ax2.set_ylabel("Amount")
+        ax2.set_title("Funds Flow Overview", fontsize=12)
+        for bar in bars:
+            height = bar.get_height()
+            ax2.annotate(f'{height:,.0f}',
+                         xy=(bar.get_x() + bar.get_width() / 2, height),
+                         xytext=(0, 3),  # 3 points vertical offset
+                         textcoords="offset points",
+                         ha='center', va='bottom', fontsize=9)
+        bar_fig.tight_layout()
+
+        charts_row = QHBoxLayout()
+        charts_row.addWidget(bar_canvas, 2)
+        charts_row.addWidget(pie_canvas, 1)
+        lyt.addLayout(charts_row)
+        lyt.addStretch()
         return group
 
     def budget_summary_widget(self):
@@ -4371,6 +4534,7 @@ class DashboardPage(QWidget):
         lyt.addWidget(table)
         lyt.addStretch()
         return group
+
 
 
 # Styles and General Design
