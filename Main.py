@@ -6620,6 +6620,14 @@ class TableTitle(QLabel):
 # Splash Screen for initialization
 class SplashScreen(QSplashScreen):
     def __init__(self):
+        # Set Windows AppUserModelID for correct taskbar icon (for splash)
+        if platform.system() == "Windows":
+            try:
+                myappid = u'pinnacle.ledger.nonprofit'  # Should match main app
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            except Exception:
+                pass
+
         # Deep Blue Navy background, white text
         pixmap = QPixmap(600, 350)
         pixmap.fill(QColor("#1B263B"))  # Deep Blue Navy
@@ -6654,6 +6662,11 @@ class SplashScreen(QSplashScreen):
         self.loading_label.setAlignment(Qt.AlignCenter)
         self.loading_label.setGeometry(0, pixmap.height() - 70, pixmap.width(), 30)
 
+        # Set splash screen icon for taskbar (Windows)
+        icon_path = "Icons/PL_Logo.ico"
+        if platform.system() == "Windows" and os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
     def show_loading(self, message):
         self.loading_label.setText(message)
         QApplication.processEvents()
@@ -6664,6 +6677,7 @@ if __name__ == "__main__":
     if platform.system() == "Windows":
         try:
             import ctypes
+            import platform
             myappid = u'pinnacle.ledger.nonprofit'  # Arbitrary string, should be unique to your app
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
