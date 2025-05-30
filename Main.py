@@ -26,8 +26,142 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import tempfile
 from reportlab.platypus import Image as RLImage
 import os
+import time
 
+# create database if not exist or first initialization of the application
+def initialize_database():
+    db_path = "Database/database.db"
+    db_dir = os.path.dirname(db_path)
+    if not os.path.exists(db_dir):
+        os.makedirs(db_dir)
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
 
+    # Create tables if not exist
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Program_administrations(
+        PA_Id INTEGER PRIMARY KEY AUTOINCREMENT,
+        PA_Name TEXT UNIQUE NOT NULL,
+        PA_Description TEXT,
+        Manager TEXT
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Donors(
+        DonorID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Name TEXT NOT NULL,
+        Address TEXT NOT NULL,
+        Contact TEXT UNIQUE NOT NULL,
+        Donor_Type TEXT NOT NULL,
+        Donor_Category TEXT NOT NULL,
+        Date_Joined DATE NOT NULL
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Categories(
+        CategoryID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Name TEXT UNIQUE NOT NULL,
+        Description TEXT
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Subcategories(
+        SubCategoryID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Name TEXT NOT NULL,
+        Description TEXT,
+        category_id INTEGER,
+        FOREIGN KEY (category_id) REFERENCES Categories(CategoryID),
+        UNIQUE(Name, category_id)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Projects(
+        ProjectID INTEGER PRIMARY KEY AUTOINCREMENT,
+        ProjectName TEXT NOT NULL,
+        ProjectDescription TEXT,
+        ProjectStartDate DATE,
+        ProjectEndDate DATE,
+        ProgramID INTEGER,
+        FOREIGN KEY (ProgramID) REFERENCES Program_administrations(PA_Id),
+        UNIQUE(ProjectName, ProgramID)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Project_Activities(
+        ActivityID INTEGER PRIMARY KEY AUTOINCREMENT,
+        ActivityName TEXT NOT NULL,
+        ActivityDescription TEXT,
+        ActivityStartDate DATE,
+        ActivityEndDate DATE,
+        ProjectID INTEGER,
+        FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID),
+        UNIQUE(ActivityName, ProjectID)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Fund(
+        FundID INTEGER PRIMARY KEY AUTOINCREMENT,
+        FundName TEXT UNIQUE NOT NULL,
+        DonorId INTEGER,
+        BudgetYear TEXT NOT NULL,
+        ProgramID INTEGER,
+        ProjectID INTEGER,
+        FundType TEXT,
+        initialDate DATE DEFAULT(current_date),
+        FOREIGN KEY (DonorId) REFERENCES Donors(DonorID),
+        FOREIGN KEY (ProgramID) REFERENCES Program_administrations(PA_Id),
+        FOREIGN KEY (ProjectID) REFERENCES Projects(ProjectID)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Transactions(
+        TransactionID INTEGER PRIMARY KEY AUTOINCREMENT,
+        TransactionDate TEXT NOT NULL,
+        BudgetYear TEXT NOT NULL,
+        TransactionType TEXT NOT NULL,
+        Amount REAL NOT NULL,
+        ProgramID INTEGER,
+        ProjectID INTEGER,
+        ActivityID INTEGER,
+        Description TEXT NOT NULL,
+        Reference TEXT NOT NULL,
+        SubCategories INTEGER,
+        FOREIGN KEY(SubCategories) REFERENCES Subcategories(SubCategoryID),
+        FOREIGN KEY(ActivityID) REFERENCES Project_Activities(ActivityID),
+        FOREIGN KEY(ProgramID) REFERENCES Program_administrations(PA_Id),
+        FOREIGN KEY(ProjectID) REFERENCES Projects(ProjectID)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS FundTransactions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fund_id INTEGER NOT NULL,
+        Transaction_id INTEGER NOT NULL,
+        FOREIGN KEY (fund_id) REFERENCES Fund(FundID),
+        FOREIGN KEY (Transaction_id) REFERENCES Transactions(TransactionID)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS Budget(
+        BudgetID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BudgetYear TEXT NOT NULL,
+        ProgramID INTEGER NOT NULL,
+        ProjectID INTEGER NOT NULL,
+        ActivityID INTEGER NOT NULL,
+        BudgetAmount REAL NOT NULL,
+        FundID INTEGER NOT NULL,
+        BudgetDescription TEXT,
+        FOREIGN KEY (FundID) REFERENCES Fund(FundID),
+        FOREIGN KEY (ProgramID) REFERENCES Program_administrations(PA_Id),
+        FOREIGN KEY(ProjectID) REFERENCES Projects(ProjectID),
+        FOREIGN KEY(ActivityID) REFERENCES Project_Activities(ActivityID),
+        UNIQUE(BudgetYear, ProgramID, ProjectID, ActivityID)
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+initialize_database()
 # Create a connection to the SQLite database
 def get_db_connection():
     conn = sqlite3.connect("Database/database.db")
@@ -4294,6 +4428,12 @@ class DashboardPage(QWidget):
         colors = ["#6f42c1", "#17a2b8"]
         explode = (0.05, 0.05)  # Slight separation
         
+        # Prevent error if both values are zero
+        if sum(values) == 0:
+            values = [1, 1]
+            labels = ["No Data", ""]
+            colors = ["#cccccc", "#eeeeee"]
+        
         # Outer pie (donut effect)
         wedges, texts, autotexts = ax2.pie(
             values, 
@@ -4303,7 +4443,7 @@ class DashboardPage(QWidget):
             explode=explode,
             wedgeprops=dict(width=0.4, edgecolor='w'),  # Creates donut
             textprops={'fontsize': 10},
-            autopct=lambda p: f'{p:.1f}%\n({p*sum(values)/100:,.0f})'
+            autopct=lambda p: f'{p:.1f}%\n({p*sum(values)/100:,.0f})' if sum(values) > 0 else ""
         )
         
         # Inner circle for clean look
@@ -4388,21 +4528,27 @@ class DashboardPage(QWidget):
         fig.clear()
         ax = fig.add_subplot(111)
         
-        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_budgets]
-        budget_values = [row["budgeted"] for row in prog_budgets]
+        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_budgets] if prog_budgets else []
+        budget_values = [row["budgeted"] for row in prog_budgets] if prog_budgets else []
         
         # Sort and select top 10 if too many
-        sorted_data = sorted(zip(prog_names, budget_values), key=lambda x: x[1], reverse=True)
+        sorted_data = sorted(zip(prog_names, budget_values), key=lambda x: x[1], reverse=True) if prog_names else []
         if len(sorted_data) > 10:
             sorted_data = sorted_data[:10]
             prog_names = [x[0] for x in sorted_data] + ["Others"]
             others_sum = sum(x[1] for x in sorted_data[10:])
             budget_values = [x[1] for x in sorted_data[:10]] + [others_sum]
+        elif sorted_data:
+            prog_names = [x[0] for x in sorted_data]
+            budget_values = [x[1] for x in sorted_data]
+        else:
+            prog_names = []
+            budget_values = []
         
         # Create gradient colors
-        colors = [plt.cm.Blues(0.3 + 0.7*x/max(budget_values)) for x in budget_values]
+        colors = [plt.cm.Blues(0.3 + 0.7*x/max(budget_values)) for x in budget_values] if budget_values else []
         
-        bars = ax.barh(prog_names, budget_values, color=colors, height=0.6)
+        bars = ax.barh(prog_names, budget_values, color=colors, height=0.6) if prog_names else []
         
         # Add value labels
         for bar in bars:
@@ -4570,18 +4716,21 @@ class DashboardPage(QWidget):
         if top_proj:
             self.top_project_stat.findChild(QLabel).setText(top_proj["PA_Name"] or "N/A")
             self.top_project_stat.findChildren(QLabel)[1].setText(f"{top_proj['total']:,.0f}")
+        else:
+            self.top_project_stat.findChild(QLabel).setText("-")
+            self.top_project_stat.findChildren(QLabel)[1].setText("0")
        
         # Enhanced program performance chart
         fig = self.program_performance_chart.figure
         fig.clear()
         ax = fig.add_subplot(111)
         
-        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_performance]
-        budgeted = [row["budgeted"] for row in prog_performance]
-        spent = [abs(row["spent"]) for row in prog_performance]
+        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_performance] if prog_performance else []
+        budgeted = [row["budgeted"] for row in prog_performance] if prog_performance else []
+        spent = [abs(row["spent"]) for row in prog_performance] if prog_performance else []
         
         # Sort and limit to top performers if too many
-        sorted_data = sorted(zip(prog_names, budgeted, spent), key=lambda x: x[1], reverse=True)
+        sorted_data = sorted(zip(prog_names, budgeted, spent), key=lambda x: x[1], reverse=True) if prog_names else []
         if len(sorted_data) > 8:
             sorted_data = sorted_data[:8]
             prog_names = [x[0] for x in sorted_data] + ["Others"]
@@ -4589,26 +4738,35 @@ class DashboardPage(QWidget):
             others_spent = sum(x[2] for x in sorted_data[8:])
             budgeted = [x[1] for x in sorted_data[:8]] + [others_budget]
             spent = [x[2] for x in sorted_data[:8]] + [others_spent]
+        elif sorted_data:
+            prog_names = [x[0] for x in sorted_data]
+            budgeted = [x[1] for x in sorted_data]
+            spent = [x[2] for x in sorted_data]
+        else:
+            prog_names = []
+            budgeted = []
+            spent = []
         
         x = np.arange(len(prog_names))
         width = 0.35
         
         # Create stacked bars with budget as base
-        p1 = ax.bar(x, budgeted, width, color='#28a745', label='Budgeted', edgecolor='white')
-        p2 = ax.bar(x, spent, width, color='#dc3545', label='Spent', edgecolor='white',
-                   bottom=[0]*len(budgeted))  # Not actually stacking, just overlapping
-        
-        # Add utilization percentages
-        for i, (b, s) in enumerate(zip(budgeted, spent)):
-            if b > 0:
-                utilization = s / b * 100
-                ax.text(x[i], max(b, s) * 1.05, f'{utilization:.0f}%',
-                       ha='center', va='bottom', fontsize=9,
-                       bbox=dict(facecolor='white', edgecolor='#dee2e6', boxstyle='round,pad=0.2'))
-        
-        # Styling
-        ax.set_xticks(x)
-        ax.set_xticklabels(prog_names, rotation=45, ha='right')
+        if len(prog_names) > 0:
+            p1 = ax.bar(x, budgeted, width, color='#28a745', label='Budgeted', edgecolor='white')
+            p2 = ax.bar(x, spent, width, color='#dc3545', label='Spent', edgecolor='white',
+                       bottom=[0]*len(budgeted))  # Not actually stacking, just overlapping
+            
+            # Add utilization percentages
+            for i, (b, s) in enumerate(zip(budgeted, spent)):
+                if b > 0:
+                    utilization = s / b * 100
+                    ax.text(x[i], max(b, s) * 1.05, f'{utilization:.0f}%',
+                           ha='center', va='bottom', fontsize=9,
+                           bbox=dict(facecolor='white', edgecolor='#dee2e6', boxstyle='round,pad=0.2'))
+            
+            # Styling
+            ax.set_xticks(x)
+            ax.set_xticklabels(prog_names, rotation=45, ha='right')
         ax.yaxis.grid(True, linestyle='--', alpha=0.4)
         ax.set_axisbelow(True)
         ax.spines['top'].set_visible(False)
@@ -4747,7 +4905,7 @@ class DashboardPage(QWidget):
         self.main_layout.addWidget(header)
 
     def load_data(self):
-        """Load and display all dashboard data"""
+        """Load and display all dashboard data, safely handling empty results"""
         conn = None
         try:
             year = str(datetime.now().year)
@@ -4762,7 +4920,7 @@ class DashboardPage(QWidget):
                 WHERE t.BudgetYear LIKE ?
             """, (f"{year}%",))
             row = cur.fetchone()
-            total_funds = row["total"] if row and "total" in row.keys() else 0
+            total_funds = row["total"] if row and "total" in row.keys() and row["total"] is not None else 0
 
             cur.execute("""
                 SELECT IFNULL(SUM(BudgetAmount),0) as total
@@ -4770,7 +4928,7 @@ class DashboardPage(QWidget):
                 WHERE BudgetYear LIKE ?
             """, (f"{year}%",))
             row = cur.fetchone()
-            total_budget = row["total"] if row and "total" in row.keys() else 0
+            total_budget = row["total"] if row and "total" in row.keys() and row["total"] is not None else 0
 
             cur.execute("""
                 SELECT FundType, IFNULL(SUM(t.Amount),0) as total
@@ -4781,8 +4939,12 @@ class DashboardPage(QWidget):
                 GROUP BY FundType
             """, (f"{year}%",))
             fund_types = {}
-            for row in cur.fetchall():
-                fund_types[row["FundType"]] = row["total"]
+            fund_type_rows = cur.fetchall()
+            if fund_type_rows:
+                for row in fund_type_rows:
+                    fund_types[row["FundType"]] = row["total"]
+            else:
+                fund_types = {"Restricted": 0, "Unrestricted": 0}
 
             # Budget data
             cur.execute("""
@@ -4791,16 +4953,16 @@ class DashboardPage(QWidget):
                 WHERE TransactionType='Expense' AND BudgetYear LIKE ?
             """, (f"{year}%",))
             row = cur.fetchone()
-            total_expense = row["total"] if row and "total" in row.keys() else 0
+            total_expense = row["total"] if row and "total" in row.keys() and row["total"] is not None else 0
 
             # Program data
             cur.execute("SELECT COUNT(*) as cnt FROM Program_administrations")
             row = cur.fetchone()
-            prog_count = row["cnt"] if row and "cnt" in row.keys() else 0
+            prog_count = row["cnt"] if row and "cnt" in row.keys() and row["cnt"] is not None else 0
 
             cur.execute("SELECT COUNT(*) as cnt FROM Projects")
             row = cur.fetchone()
-            proj_count = row["cnt"] if row and "cnt" in row.keys() else 0
+            proj_count = row["cnt"] if row and "cnt" in row.keys() and row["cnt"] is not None else 0
 
             cur.execute("""
                 SELECT pa.PA_Name, IFNULL(SUM(t.Amount),0) as total
@@ -4810,7 +4972,7 @@ class DashboardPage(QWidget):
                 GROUP BY pa.PA_Name
                 ORDER BY total DESC LIMIT 1
             """, (f"{year}%",))
-            top_proj = cur.fetchone()
+            top_proj = cur.fetchone() if cur.rowcount != 0 else None
 
             # Transaction data
             cur.execute("""
@@ -4819,7 +4981,7 @@ class DashboardPage(QWidget):
                 WHERE BudgetYear LIKE ?
                 GROUP BY TransactionType
             """, (f"{year}%",))
-            tx_types = cur.fetchall()
+            tx_types = cur.fetchall() if cur.rowcount != 0 else []
 
             cur.execute("""
                 SELECT TransactionDate, TransactionType, Amount, Reference
@@ -4828,7 +4990,7 @@ class DashboardPage(QWidget):
                 ORDER BY TransactionDate DESC, TransactionID DESC
                 LIMIT 5
             """, (f"{year}%",))
-            recent_tx = cur.fetchall()
+            recent_tx = cur.fetchall() if cur.rowcount != 0 else []
 
             # Budget by program
             cur.execute("""
@@ -4838,7 +5000,7 @@ class DashboardPage(QWidget):
                 WHERE b.BudgetYear LIKE ?
                 GROUP BY pa.PA_Name
             """, (f"{year}%",))
-            prog_budgets = cur.fetchall()
+            prog_budgets = cur.fetchall() if cur.rowcount != 0 else []
 
             # Program performance
             cur.execute("""
@@ -4850,7 +5012,20 @@ class DashboardPage(QWidget):
                 LEFT JOIN Transactions t ON pa.PA_Id = t.ProgramID AND t.TransactionType='Expense' AND t.BudgetYear LIKE ?
                 GROUP BY pa.PA_Name
             """, (f"{year}%", f"{year}%"))
-            prog_performance = cur.fetchall()
+            prog_performance = cur.fetchall() if cur.rowcount != 0 else []
+        except Exception:
+            # If any error, fallback to empty/zero data
+            total_funds = 0
+            total_budget = 0
+            fund_types = {"Restricted": 0, "Unrestricted": 0}
+            total_expense = 0
+            prog_count = 0
+            proj_count = 0
+            top_proj = None
+            tx_types = []
+            recent_tx = []
+            prog_budgets = []
+            prog_performance = []
         finally:
             if conn is not None:
                 conn.close()
@@ -4877,34 +5052,37 @@ class DashboardPage(QWidget):
     def update_transaction_card(self, tx_types, recent_tx):
         """Update the transaction summary card with data"""
         # Update type indicators
-        funds = next((row["total"] for row in tx_types if row["TransactionType"] == "Funds"), 0)
-        expenses = next((row["total"] for row in tx_types if row["TransactionType"] == "Expense"), 0)
+        funds = next((row["total"] for row in tx_types if row["TransactionType"] == "Funds"), 0) if tx_types else 0
+        expenses = next((row["total"] for row in tx_types if row["TransactionType"] == "Expense"), 0) if tx_types else 0
         
         self.funds_indicator.findChild(QLabel).setText(f"Funds: {funds:,.2f}")
         self.expenses_indicator.findChild(QLabel).setText(f"Expenses: {expenses:,.2f}")
         
         # Update recent transactions table
-        self.transaction_table.setRowCount(len(recent_tx))
-        for i, row in enumerate(recent_tx):
-            self.transaction_table.setItem(i, 0, QTableWidgetItem(row["TransactionDate"] or ""))
-            
-            type_item = QTableWidgetItem(row["TransactionType"] or "")
-            if row["TransactionType"] == "Funds":
-                type_item.setForeground(QColor("#007bff"))
-            else:
-                type_item.setForeground(QColor("#dc3545"))
-            self.transaction_table.setItem(i, 1, type_item)
-            
-            amount = row["Amount"]
-            amount_item = QTableWidgetItem(f"{abs(amount):,.2f}")
-            amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if row["TransactionType"] == "Funds":
-                amount_item.setForeground(QColor("#28a745"))
-            else:
-                amount_item.setForeground(QColor("#dc3545"))
-            self.transaction_table.setItem(i, 2, amount_item)
-            
-            self.transaction_table.setItem(i, 3, QTableWidgetItem(row["Reference"] or ""))
+        self.transaction_table.setRowCount(len(recent_tx) if recent_tx else 0)
+        if recent_tx:
+            for i, row in enumerate(recent_tx):
+                self.transaction_table.setItem(i, 0, QTableWidgetItem(row["TransactionDate"] or ""))
+                
+                type_item = QTableWidgetItem(row["TransactionType"] or "")
+                if row["TransactionType"] == "Funds":
+                    type_item.setForeground(QColor("#007bff"))
+                else:
+                    type_item.setForeground(QColor("#dc3545"))
+                self.transaction_table.setItem(i, 1, type_item)
+                
+                amount = row["Amount"]
+                amount_item = QTableWidgetItem(f"{abs(amount):,.2f}")
+                amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if row["TransactionType"] == "Funds":
+                    amount_item.setForeground(QColor("#28a745"))
+                else:
+                    amount_item.setForeground(QColor("#dc3545"))
+                self.transaction_table.setItem(i, 2, amount_item)
+                
+                self.transaction_table.setItem(i, 3, QTableWidgetItem(row["Reference"] or ""))
+        else:
+            self.transaction_table.clearContents()
 
 class ReportPage(QWidget):
     def __init__(self):
@@ -4934,7 +5112,12 @@ class ReportPage(QWidget):
         self.setup_section1()  # Funds & Expenses Overview
         self.setup_section2()  # Expenses vs Budget
         self.setup_section3()  # Transaction Summary
-        # self.setup_section4()  # Additional Insights (optional)
+
+        self.no_data_label = QLabel("No data available for the selected period.")
+        self.no_data_label.setStyleSheet("font-size: 22px; color: #888; font-weight: bold;")
+        self.no_data_label.setAlignment(Qt.AlignCenter)
+        self.no_data_label.setVisible(False)
+        self.main_layout.addWidget(self.no_data_label)
 
         self.main_layout.addStretch(1)
         self.scroll.setWidget(self.content)
@@ -5103,7 +5286,7 @@ class ReportPage(QWidget):
         self.month_filter.currentIndexChanged.connect(self.generate_report)
 
     def generate_report(self):
-        """Generate and display the report data"""
+        """Generate and display the report data, show 'No data' if empty"""
         try:
             year = self.year_filter.currentText()
             month = self.month_filter.currentText()
@@ -5113,7 +5296,25 @@ class ReportPage(QWidget):
             
             # Get data from database
             data = self.fetch_report_data(year, date_filter)
-            
+
+            # Check if all sections are empty
+            is_empty = (
+                (not data['monthly'] or all((r["funds"] or 0) == 0 and (r["expenses"] or 0) == 0 for r in data['monthly']))
+                and (not data['unused_funds'] or all((r["received"] or 0) == 0 and (r["allocated"] or 0) == 0 for r in data['unused_funds']))
+                and (not data['projects'] or all((r["budgeted"] or 0) == 0 and (r["spent"] or 0) == 0 for r in data['projects']))
+                and (not data['subcategories'] or all((r["total_funds"] or 0) == 0 and (r["total_expenses"] or 0) == 0 for r in data['subcategories']))
+            )
+
+            self.section1.setVisible(not is_empty)
+            self.section2.setVisible(not is_empty)
+            self.section3.setVisible(not is_empty)
+            self.no_data_label.setVisible(is_empty)
+
+            if is_empty:
+                # Clear charts and table
+                self.clear_charts_and_table()
+                return
+
             # Update charts and tables
             self.update_section1(data)
             self.update_section2(data)
@@ -5121,6 +5322,22 @@ class ReportPage(QWidget):
             
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to generate report: {str(e)}")
+            self.section1.setVisible(False)
+            self.section2.setVisible(False)
+            self.section3.setVisible(False)
+            self.no_data_label.setVisible(True)
+            self.clear_charts_and_table()
+
+    def clear_charts_and_table(self):
+        # Clear all charts and table to avoid matplotlib errors
+        for canvas in [self.funds_expenses_chart, self.unused_funds_chart, self.project_expense_chart]:
+            fig = canvas.figure
+            fig.clear()
+            ax = fig.add_subplot(111)
+            ax.axis('off')
+            fig.tight_layout()
+            canvas.draw()
+        self.subcat_table.setRowCount(0)
 
     def prepare_date_filter(self, year, month):
         """Prepare the date filter string based on selections"""
@@ -5206,17 +5423,19 @@ class ReportPage(QWidget):
         fig1 = self.funds_expenses_chart.figure
         fig1.clear()
         ax = fig1.add_subplot(111)
-        
-        x = np.arange(len(months_labels))
-        width = 0.35
-        ax.bar(x - width/2, funds_vals, width, label="Funds", color="#007bff")
-        ax.bar(x + width/2, expenses_vals, width, label="Expenses", color="#dc3545")
-        
-        ax.set_xticks(x)
-        ax.set_xticklabels(months_labels)
-        ax.set_ylabel("Amount ()")
-        ax.set_title("Monthly Funds & Expenses")
-        ax.legend()
+        if months_labels:
+            x = np.arange(len(months_labels))
+            width = 0.35
+            ax.bar(x - width/2, funds_vals, width, label="Funds", color="#007bff")
+            ax.bar(x + width/2, expenses_vals, width, label="Expenses", color="#dc3545")
+            ax.set_xticks(x)
+            ax.set_xticklabels(months_labels)
+            ax.set_ylabel("Amount ()")
+            ax.set_title("Monthly Funds & Expenses")
+            ax.legend()
+        else:
+            ax.text(0.5, 0.5, "No data", ha='center', va='center', fontsize=16, color="#888", transform=ax.transAxes)
+            ax.axis('off')
         fig1.tight_layout()
         self.funds_expenses_chart.draw()
         
@@ -5228,11 +5447,13 @@ class ReportPage(QWidget):
         fig2 = self.unused_funds_chart.figure
         fig2.clear()
         ax2 = fig2.add_subplot(111)
-        
-        # Use horizontal bar for better readability
-        ax2.barh(fund_names, unused_vals, color="#28a745")
-        ax2.set_xlabel("Unused Amount ()")
-        ax2.set_title("Unused Funds by Source")
+        if fund_names and any(unused_vals):
+            ax2.barh(fund_names, unused_vals, color="#28a745")
+            ax2.set_xlabel("Unused Amount ()")
+            ax2.set_title("Unused Funds by Source")
+        else:
+            ax2.text(0.5, 0.5, "No data", ha='center', va='center', fontsize=16, color="#888", transform=ax2.transAxes)
+            ax2.axis('off')
         fig2.tight_layout()
         self.unused_funds_chart.draw()
 
@@ -5246,39 +5467,46 @@ class ReportPage(QWidget):
         fig3 = self.project_expense_chart.figure
         fig3.clear()
         ax3 = fig3.add_subplot(111)
-        
-        x = np.arange(len(proj_names))
-        width = 0.35
-        ax3.bar(x - width/2, budgeted, width, label="Budgeted", color="#28a745")
-        ax3.bar(x + width/2, spent, width, label="Spent", color="#dc3545")
-        
-        ax3.set_xticks(x)
-        ax3.set_xticklabels(proj_names, rotation=45, ha='right')
-        ax3.set_ylabel("Amount ()")
-        ax3.set_title("Project Budget vs Actual Spending")
-        
-        # Add percentage labels
-        for i, pct in enumerate(percent):
-            ax3.text(i, max(budgeted[i], spent[i]) * 1.05, 
-                    f"{pct:.1f}%", 
-                    ha='center', va='bottom', 
-                    fontsize=10, color="#6c757d")
-        
-        ax3.legend()
+        if proj_names and any(budgeted) or any(spent):
+            x = np.arange(len(proj_names))
+            width = 0.35
+            ax3.bar(x - width/2, budgeted, width, label="Budgeted", color="#28a745")
+            ax3.bar(x + width/2, spent, width, label="Spent", color="#dc3545")
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(proj_names, rotation=45, ha='right')
+            ax3.set_ylabel("Amount ()")
+            ax3.set_title("Project Budget vs Actual Spending")
+            # Add percentage labels
+            for i, pct in enumerate(percent):
+                ax3.text(i, max(budgeted[i], spent[i]) * 1.05, 
+                        f"{pct:.1f}%", 
+                        ha='center', va='bottom', 
+                        fontsize=10, color="#6c757d")
+            ax3.legend()
+        else:
+            ax3.text(0.5, 0.5, "No data", ha='center', va='center', fontsize=16, color="#888", transform=ax3.transAxes)
+            ax3.axis('off')
         fig3.tight_layout()
         self.project_expense_chart.draw()
 
     def update_section3(self, data):
         """Update the Subcategories table"""
-        self.subcat_table.setRowCount(len(data['subcategories']))
-        
-        for i, row in enumerate(data['subcategories']):
+        subcats = data['subcategories']
+        self.subcat_table.setRowCount(len(subcats))
+        if not subcats or all((row['total_funds'] or 0) == 0 and (row['total_expenses'] or 0) == 0 for row in subcats):
+            self.subcat_table.setRowCount(1)
+            item = QTableWidgetItem("No data")
+            item.setTextAlignment(Qt.AlignCenter)
+            self.subcat_table.setItem(0, 0, item)
+            self.subcat_table.setItem(0, 1, QTableWidgetItem(""))
+            self.subcat_table.setItem(0, 2, QTableWidgetItem(""))
+            return
+
+        for i, row in enumerate(subcats):
             self.subcat_table.setItem(i, 0, QTableWidgetItem(row["Subcategory"] or "N/A"))
-            
             funds_item = QTableWidgetItem(f"{row['total_funds'] or 0:,.2f}")
             funds_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.subcat_table.setItem(i, 1, funds_item)
-            
             expenses_item = QTableWidgetItem(f"{abs(row['total_expenses'] or 0):,.2f}")
             expenses_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.subcat_table.setItem(i, 2, expenses_item)
@@ -5288,6 +5516,10 @@ class ReportPage(QWidget):
         Export the current report data to a well-formatted PDF file, including charts as images.
         Uses reportlab for PDF generation.
         """
+        # If no data, do not export
+        if self.no_data_label.isVisible():
+            QMessageBox.information(self, "No Data", "There is no data to export for the selected period.")
+            return
 
         # Ask user for file path
         file_path, _ = QFileDialog.getSaveFileName(
@@ -6384,12 +6616,84 @@ class TableTitle(QLabel):
         self.setFont(QFont("Lato-Regular", 14))
         self.setStyleSheet("color:#1B263B;")
 
-if __name__ == "__main__":
-    app = QApplication([])
-    # Directly show MainWindow (bypassing UserManager and LoginDialog)
-    main_window = MainWindow()
-    main_window.show()
-    app.exec_()
 
+# Splash Screen for initialization
+class SplashScreen(QSplashScreen):
+    def __init__(self):
+        # Deep Blue Navy background, white text
+        pixmap = QPixmap(600, 350)
+        pixmap.fill(QColor("#1B263B"))  # Deep Blue Navy
+
+        # Draw text and credit using QPainter context manager
+        painter = QPainter(pixmap)
+        try:
+            painter.setRenderHint(QPainter.Antialiasing)
+            # Main title
+            font = QFont("Segoe UI", 38, QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QColor("white"))
+            text = "Pinnacle Ledger"
+            rect = pixmap.rect()
+            painter.drawText(rect, Qt.AlignCenter, text)
+            # Developer credit (smaller, at bottom)
+            credit_font = QFont("Segoe UI", 14, QFont.Normal)
+            painter.setFont(credit_font)
+            credit_text = "Developed by SHEMA Can Daddy Nathan"
+            credit_rect = QRect(0, pixmap.height() - 40, pixmap.width(), 30)
+            painter.setPen(QColor("#A9CCE3"))  # Lighter blue for credit
+            painter.drawText(credit_rect, Qt.AlignCenter, credit_text)
+        finally:
+            painter.end()
+        super().__init__(pixmap)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setMask(pixmap.mask())
+        # Optional: Add a loading message
+        self.loading_label = QLabel(self)
+        self.loading_label.setText("Initializing...")
+        self.loading_label.setStyleSheet("color: white; font-size: 16px;")
+        self.loading_label.setAlignment(Qt.AlignCenter)
+        self.loading_label.setGeometry(0, pixmap.height() - 70, pixmap.width(), 30)
+
+    def show_loading(self, message):
+        self.loading_label.setText(message)
+        QApplication.processEvents()
+
+if __name__ == "__main__":
+    import platform
+    # Set Windows AppUserModelID for correct taskbar icon
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            myappid = u'pinnacle.ledger.nonprofit'  # Arbitrary string, should be unique to your app
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+
+    app = QApplication([])
+    splash = SplashScreen()
+    splash.show()
+    # Simulate initialization steps (update message if needed)
+    splash.show_loading("Loading modules...")
+    app.processEvents()
+    time.sleep(2)
+    splash.show_loading("Connecting to database...")
+    app.processEvents()
+    time.sleep(2)
+    splash.show_loading("Preparing interface...")
+    app.processEvents()
+    time.sleep(1)
+    # Now show main window
+    main_window = MainWindow()
+    splash.finish(main_window)
+    main_window.show()
+    # Set window icon for the application (shows on taskbar and window)
+    icon_path = "Icons/PL_Logo.ico"  # Use your icon file (PNG or ICO)
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+        main_window.setWindowIcon(QIcon(icon_path))
+    # Taskbar icon is now set via AppUserModelID and window icon
+
+    app.exec_()
+   
 
        
