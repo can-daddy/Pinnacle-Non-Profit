@@ -28,6 +28,37 @@ from reportlab.platypus import Image as RLImage
 import os
 import time
 
+# Utility: Refresh mechanism for all pages
+
+class RefreshablePageMixin:
+    """
+    Mixin to add a refresh_data() method and a signal for refresh.
+    Any page that wants to support global refresh should inherit this.
+    """
+    def refresh_data(self):
+        # Override in subclasses to reload data from DB
+        pass
+
+# (The patching loop will be moved after all relevant classes are defined)
+
+# Example: Add a "Refresh" button to the main window header for manual refresh
+def add_refresh_button_to_mainwindow(main_window):
+    refresh_btn = button("Refresh", "info", "md", icon_path="Icons/refresh.svg", icon_toolTip="Refresh All Data")
+    def do_refresh():
+        refresh_all_pages(main_window)
+    refresh_btn.clicked.connect(do_refresh)
+    # Insert before Morebutton in MainBodyHeaderLayout
+    header_layout = main_window.findChild(QWidget, "MainBodyHeader").layout()
+    header_layout.insertWidget(header_layout.count() - 1, refresh_btn)
+    return refresh_btn
+
+# In MainWindow.__init__, after MainBodyHeader is created:
+# add_refresh_button_to_mainwindow(self)
+
+# Optionally: Call refresh_all_pages(self) after any DB-changing dialog is accepted
+# For example, after adding/editing/deleting in DonorsPage, FundPage, etc., call:
+# refresh_all_pages(self.parent().parent().parent())  # Or pass main_window reference
+
 # create database if not exist or first initialization of the application
 def initialize_database():
     db_path = "Database/database.db"
@@ -160,7 +191,6 @@ def initialize_database():
     """)
     conn.commit()
     conn.close()
-
 initialize_database()
 # Create a connection to the SQLite database
 def get_db_connection():
@@ -267,6 +297,11 @@ class MainWindow(QWidget):
             color: White;
             letter-spacing: 0.5px;
         """)
+        # Add a "Refresh" button to the header
+        refresh_btn = button("Refresh", "info", "md", icon_path="Icons/refresh.svg", icon_toolTip="Refresh All Data")
+        def do_refresh():
+            refresh_all_pages(self)
+        refresh_btn.clicked.connect(do_refresh)
         Morebutton = QPushButton()
         Morebutton.setFlat(True)
         Morebutton.setIcon(QIcon("Icons/More.svg"))  # Put your icon in Icons/More.svg
@@ -316,6 +351,7 @@ class MainWindow(QWidget):
         MainBodyHeaderLayout.addWidget(self.Orgname, alignment=Qt.AlignRight)
         MainBodyHeaderLayout.addWidget(self.AccountButton, alignment=Qt.AlignRight)
         MainBodyHeaderLayout.addWidget(Morebutton, alignment=Qt.AlignRight)
+        MainBodyHeaderLayout.addWidget(refresh_btn, alignment=Qt.AlignRight)
         MainBodyHeader.setLayout(MainBodyHeaderLayout)
         MainBodyHeader.setObjectName("MainBodyHeader")
         MainBodyHeader.setStyleSheet("""
@@ -618,6 +654,8 @@ class DonorsPage(QWidget):
             QMessageBox.information(self, "Success", "Donor added successfully!")
             dialog.accept()
             self.refresh_donor_table()
+            # Refresh all pages after adding
+            refresh_all_pages(self)
 
         cancel_btn.clicked.connect(dialog.reject)
         save_btn.clicked.connect(save)
@@ -721,6 +759,8 @@ class DonorsPage(QWidget):
             QMessageBox.information(self, "Success", "Donor updated successfully!")
             dialog.accept()
             self.refresh_donor_table()
+            # Refresh all pages after editing
+            refresh_all_pages(self)
         save_btn.clicked.connect(save_edit)
 
         dialog.setLayout(layout)
@@ -742,6 +782,8 @@ class DonorsPage(QWidget):
                 conn.close()
             QMessageBox.information(self, "Deleted", "Donor deleted successfully!")
             self.refresh_donor_table()
+            # Refresh all pages after deleting
+            refresh_all_pages(self)
 
     def refresh_donor_table(self):
         # Get filter values
@@ -1036,6 +1078,7 @@ class Categories_SubCategories(QWidget):
                     conn.close()
                     dlg.accept()
                     load_categories(searchbar.text())
+                    refresh_all_pages(self)
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -1091,6 +1134,7 @@ class Categories_SubCategories(QWidget):
                     conn2.close()
                 dlg.accept()
                 load_categories(searchbar.text())
+                refresh_all_pages(self)
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -1105,6 +1149,7 @@ class Categories_SubCategories(QWidget):
                 finally:
                     conn.close()
                 load_categories(searchbar.text())
+                refresh_all_pages(self)
 
         # Connect signals
         add_btn.clicked.connect(add_category)
@@ -1210,6 +1255,7 @@ class Categories_SubCategories(QWidget):
             filter_text = self.SearchBar.text()
             cat_id = self.category_filter.currentData()
             self.load_subcategories(filter_text, cat_id)
+            refresh_all_pages(self)
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -1279,6 +1325,7 @@ class Categories_SubCategories(QWidget):
             filter_text = self.SearchBar.text()
             cat_id = self.category_filter.currentData()
             self.load_subcategories(filter_text, cat_id)
+            refresh_all_pages(self)
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -1295,6 +1342,7 @@ class Categories_SubCategories(QWidget):
             filter_text = self.SearchBar.text()
             cat_id = self.category_filter.currentData()
             self.load_subcategories(filter_text, cat_id)
+            refresh_all_pages(self)
 
 class Program_Admnistration(QWidget):
     def __init__(self):
@@ -1447,6 +1495,7 @@ class Program_Admnistration(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_program_table()
+            refresh_all_pages(self)
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -1509,6 +1558,7 @@ class Program_Admnistration(QWidget):
                 conn2.close()
             dlg.accept()
             self.refresh_program_table()
+            refresh_all_pages(self)
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -1523,6 +1573,7 @@ class Program_Admnistration(QWidget):
             finally:
                 conn.close()
             self.refresh_program_table()
+            refresh_all_pages(self)
 
 class Projects_Activities(QWidget):
     def __init__(self):
@@ -1775,6 +1826,7 @@ class Projects_Activities(QWidget):
                     conn.close()
                 dlg.accept()
                 refresh_activities_table()
+                refresh_all_pages(self)
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -1871,6 +1923,7 @@ class Projects_Activities(QWidget):
                     conn3.close()
                 dlg.accept()
                 refresh_activities_table()
+                refresh_all_pages(self)
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -1885,6 +1938,7 @@ class Projects_Activities(QWidget):
                 finally:
                     conn.close()
                 refresh_activities_table()
+                refresh_all_pages(self)
 
         # Add button for activities
         self.AddButton.clicked.connect(add_activity)
@@ -2049,6 +2103,7 @@ class Projects_Activities(QWidget):
                     conn.close()
                 dlg.accept()
                 load_projects(searchbar.text())
+                refresh_all_pages(self)
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -2148,6 +2203,7 @@ class Projects_Activities(QWidget):
                     conn3.close()
                 dlg.accept()
                 load_projects(searchbar.text())
+                refresh_all_pages(self)
             save_btn.clicked.connect(save)
             dlg.exec_()
 
@@ -2162,6 +2218,7 @@ class Projects_Activities(QWidget):
                 finally:
                     conn.close()
                 load_projects(searchbar.text())
+                refresh_all_pages(self)
 
         # Connect signals
         add_btn.clicked.connect(add_project)
@@ -2719,6 +2776,7 @@ class TransactionsPage(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_transaction_table()
+            refresh_all_pages(self)
 
         save_btn.clicked.connect(save)
         dlg.exec_()
@@ -3088,6 +3146,7 @@ class TransactionsPage(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_transaction_table()
+            refresh_all_pages(self)
 
         save_btn.clicked.connect(save)
         dlg.exec_()
@@ -3101,13 +3160,14 @@ class TransactionsPage(QWidget):
             try:
                 cur = conn.cursor()
                 # Delete from FundTransaction first (if exists)
-                cur.execute("DELETE FROM FundTransactions WHERE TransactionID=?", (transaction_id,))
+                cur.execute("DELETE FROM FundTransactions WHERE Transaction_id=?", (transaction_id,))
                 # Then delete from Transactions
                 cur.execute("DELETE FROM Transactions WHERE TransactionID=?", (transaction_id,))
                 conn.commit()
             finally:
                 conn.close()
             self.refresh_transaction_table()
+            refresh_all_pages(self)
 
 class FundPage(QWidget):
     def __init__(self):
@@ -3398,6 +3458,7 @@ class FundPage(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_fund_table()
+            refresh_all_pages(self)
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -3584,6 +3645,7 @@ class FundPage(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_fund_table()
+            refresh_all_pages(self)
         save_btn.clicked.connect(save)
         dlg.exec_()
 
@@ -3598,6 +3660,7 @@ class FundPage(QWidget):
             finally:
                 conn.close()
             self.refresh_fund_table()
+            refresh_all_pages(self)
 
 class BudgetsPage(QWidget):
     def __init__(self):
@@ -3935,7 +3998,7 @@ class BudgetsPage(QWidget):
                 cur.execute("""
                     SELECT IFNULL(SUM(t.Amount),0)
                     FROM FundTransactions ft
-                    JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                    JOIN Transactions t ON ft.transaction_id = t.TransactionID
                     WHERE ft.fund_id=?
                 """, (fund_id,))
                 total_fund = cur.fetchone()[0]
@@ -3973,6 +4036,7 @@ class BudgetsPage(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_budget_table()
+            refresh_all_pages(self)
 
         save_btn.clicked.connect(save)
         dlg.exec_()
@@ -4199,7 +4263,7 @@ class BudgetsPage(QWidget):
                 cur.execute("""
                     SELECT IFNULL(SUM(t.Amount),0)
                     FROM FundTransactions ft
-                    JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                    JOIN Transactions t ON ft.transaction_id = t.TransactionID
                     WHERE ft.fund_id=?
                 """, (fund_id,))
                 total_fund = cur.fetchone()[0]
@@ -4237,6 +4301,7 @@ class BudgetsPage(QWidget):
                 conn.close()
             dlg.accept()
             self.refresh_budget_table()
+            refresh_all_pages(self)
 
         save_btn.clicked.connect(save)
         dlg.exec_()
@@ -4252,13 +4317,18 @@ class BudgetsPage(QWidget):
             finally:
                 conn.close()
             self.refresh_budget_table()
+            refresh_all_pages(self)
 
 class DashboardPage(QWidget):
     def __init__(self):
         super().__init__()
         self.setup_ui()
         self.load_data()
-        
+
+    def refresh_data(self):
+        """Called by refresh_all_pages to reload dashboard data dynamically."""
+        self.load_data()
+
     def setup_ui(self):
         """Initialize all UI components with modern design"""
         self.setStyleSheet("""
@@ -4266,51 +4336,51 @@ class DashboardPage(QWidget):
                 background: #f5f7fa;
             }
         """)
-        
+
         # Main scroll area
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet(self.get_scrollbar_styles())
-        
+
         # Content container
         content = QWidget()
         self.main_layout = QVBoxLayout(content)
         self.main_layout.setContentsMargins(20, 20, 20, 20)
         self.main_layout.setSpacing(20)
-        
+
         # Header with title and quick stats
         self.setup_header()
-        
+
         # Cards grid layout
         self.cards_grid = QGridLayout()
         self.cards_grid.setSpacing(20)
         self.cards_grid.setContentsMargins(0, 0, 0, 0)
-        
+
         # Add cards to the grid
         self.setup_fund_card()
         self.setup_budget_card()
         self.setup_transaction_card()
         self.setup_projects_card()
-        
+
         self.main_layout.addLayout(self.cards_grid)
         scroll.setWidget(content)
-        
+
         # Main window layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(scroll)
-    
+
     def setup_fund_card(self):
         """Fund Overview card with enhanced charts"""
         card = self.create_card("Fund Overview", "#007bff")
         layout = QVBoxLayout(card)
         layout.setSpacing(15)
-        
+
         # Stats row with modern design
         stats_row = QHBoxLayout()
         stats_row.setSpacing(15)
-        
+
         def stat_box(value, label, color, icon=None):
             widget = QWidget()
             widget.setStyleSheet(f"""
@@ -4321,83 +4391,83 @@ class DashboardPage(QWidget):
             """)
             box_layout = QVBoxLayout(widget)
             box_layout.setSpacing(4)
-            
+
             if icon:
                 icon_label = QLabel()
                 icon_label.setPixmap(QPixmap(icon).scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                 box_layout.addWidget(icon_label, alignment=Qt.AlignRight)
-            
+
             value_label = QLabel(str(value))
             value_label.setStyleSheet(f"""
                 font-size: 18px;
                 font-weight: bold;
                 color: {color};
             """)
-            
+
             label_label = QLabel(label)
             label_label.setStyleSheet("""
                 font-size: 12px;
                 color: #6c757d;
             """)
-            
+
             box_layout.addWidget(value_label)
             box_layout.addWidget(label_label)
             return widget
-        
+
         self.fund_received_stat = stat_box("0", "Received", "#007bff", "Icons/funds.svg")
         self.fund_allocated_stat = stat_box("0", "Allocated", "#28a745", "Icons/budget.svg")
         self.fund_available_stat = stat_box("0", "Available", "#dc3545", "Icons/wallet.svg")
-        
+
         stats_row.addWidget(self.fund_received_stat)
         stats_row.addWidget(self.fund_allocated_stat)
         stats_row.addWidget(self.fund_available_stat)
         layout.addLayout(stats_row)
-        
+
         # Enhanced charts container
         charts_container = QWidget()
         charts_layout = QHBoxLayout(charts_container)
         charts_layout.setContentsMargins(0, 0, 0, 0)
         charts_layout.setSpacing(15)
-        
+
         # Modern bar chart with grid and annotations
         self.funds_flow_chart = FigureCanvas(Figure(figsize=(6, 4), facecolor='none'))
         self.funds_flow_chart.setStyleSheet("background: transparent;")
         self.funds_flow_chart.setMinimumHeight(300)
-        
+
         # Modern pie chart with donut effect
         self.funds_type_chart = FigureCanvas(Figure(figsize=(4, 4), facecolor='none'))
         self.funds_type_chart.setStyleSheet("background: transparent;")
         self.funds_type_chart.setMinimumHeight(300)
-        
+
         charts_layout.addWidget(self.funds_flow_chart, 2)
         charts_layout.addWidget(self.funds_type_chart, 1)
         layout.addWidget(charts_container)
-        
+
         self.cards_grid.addWidget(card, 0, 0, 1, 2)
-        
+
     def update_fund_card(self, total_funds, total_budget, fund_types):
         """Update the fund overview card with enhanced visualizations"""
         available = total_funds - total_budget
         restricted = fund_types.get("Restricted", 0)
         unrestricted = fund_types.get("Unrestricted", 0)
-        
+
         # Update stats
         self.fund_received_stat.findChild(QLabel).setText(f"{total_funds:,.2f}")
         self.fund_allocated_stat.findChild(QLabel).setText(f"{total_budget:,.2f}")
         self.fund_available_stat.findChild(QLabel).setText(f"{available:,.2f}")
-        
+
         # Enhanced funds flow chart
         fig1 = self.funds_flow_chart.figure
         fig1.clear()
         ax1 = fig1.add_subplot(111)
-        
+
         labels = ["Received", "Allocated", "Available"]
         values = [total_funds, total_budget, available]
         colors = ["#007bff", "#28a745", "#dc3545"]
-        
+
         # Modern bar chart with effects
         bars = ax1.bar(labels, values, color=colors, width=0.6, edgecolor='white', linewidth=2)
-        
+
         # Add value labels inside bars
         for bar in bars:
             height = bar.get_height()
@@ -4405,7 +4475,7 @@ class DashboardPage(QWidget):
                     f'{height:,.0f}',
                     ha='center', va='center',
                     color='white', fontsize=10, fontweight='bold')
-        
+
         # Styling
         ax1.spines['top'].set_visible(False)
         ax1.spines['right'].set_visible(False)
@@ -4414,26 +4484,26 @@ class DashboardPage(QWidget):
         ax1.set_axisbelow(True)
         ax1.set_title("Funds Flow Overview", pad=20, fontsize=12, fontweight='bold')
         ax1.tick_params(axis='x', which='both', bottom=False, top=False)
-        
+
         fig1.tight_layout()
         self.funds_flow_chart.draw()
-        
+
         # Enhanced funds type chart (donut style)
         fig2 = self.funds_type_chart.figure
         fig2.clear()
         ax2 = fig2.add_subplot(111)
-        
+
         labels = ["Restricted", "Unrestricted"]
         values = [restricted, unrestricted]
         colors = ["#6f42c1", "#17a2b8"]
         explode = (0.05, 0.05)  # Slight separation
-        
+
         # Prevent error if both values are zero
         if sum(values) == 0:
             values = [1, 1]
             labels = ["No Data", ""]
             colors = ["#cccccc", "#eeeeee"]
-        
+
         # Outer pie (donut effect)
         wedges, texts, autotexts = ax2.pie(
             values, 
@@ -4445,14 +4515,14 @@ class DashboardPage(QWidget):
             textprops={'fontsize': 10},
             autopct=lambda p: f'{p:.1f}%\n({p*sum(values)/100:,.0f})' if sum(values) > 0 else ""
         )
-        
+
         # Inner circle for clean look
         centre_circle = plt.Circle((0,0), 0.2, color='white')
         ax2.add_artist(centre_circle)
-        
+
         ax2.set_title("Funds by Type", pad=20, fontsize=12, fontweight='bold')
         ax2.legend(wedges, labels, loc="center", bbox_to_anchor=(0.5, -0.1))
-        
+
         fig2.tight_layout()
         self.funds_type_chart.draw()
 
@@ -4461,12 +4531,12 @@ class DashboardPage(QWidget):
         card = self.create_card("Budget Summary", "#28a745")
         layout = QVBoxLayout(card)
         layout.setSpacing(15)
-        
+
         # Modern utilization meter with label
         meter_container = QWidget()
         meter_layout = QVBoxLayout(meter_container)
         meter_layout.setSpacing(8)
-        
+
         meter_header = QHBoxLayout()
         meter_header.addWidget(QLabel("Budget Utilization"))
         meter_header.addStretch()
@@ -4478,7 +4548,7 @@ class DashboardPage(QWidget):
         """)
         meter_header.addWidget(self.utilization_value)
         meter_layout.addLayout(meter_header)
-        
+
         # Enhanced progress bar with animation effect
         self.utilization_meter = QProgressBar()
         self.utilization_meter.setRange(0, 100)
@@ -4500,13 +4570,13 @@ class DashboardPage(QWidget):
         """)
         meter_layout.addWidget(self.utilization_meter)
         layout.addWidget(meter_container)
-        
+
         # Modern horizontal bar chart
         self.budget_program_chart = FigureCanvas(Figure(figsize=(6, 4), facecolor='none'))
         self.budget_program_chart.setStyleSheet("background: transparent;")
         self.budget_program_chart.setMinimumHeight(300)
         layout.addWidget(self.budget_program_chart)
-        
+
         self.cards_grid.addWidget(card, 1, 0)
 
     def update_budget_card(self, total_budget, total_expense, prog_budgets):
@@ -4514,7 +4584,7 @@ class DashboardPage(QWidget):
         # Update utilization meter with animation
         utilization = (total_expense / total_budget * 100) if total_budget else 0
         self.utilization_value.setText(f"{utilization:.1f}%")
-        
+
         # Animate the progress bar
         animation = QPropertyAnimation(self.utilization_meter, b"value")
         animation.setDuration(1000)
@@ -4522,15 +4592,15 @@ class DashboardPage(QWidget):
         animation.setEndValue(int(utilization))
         animation.setEasingCurve(QEasingCurve.OutQuad)
         animation.start()
-        
+
         # Enhanced program budget chart
         fig = self.budget_program_chart.figure
         fig.clear()
         ax = fig.add_subplot(111)
-        
+
         prog_names = [row["PA_Name"] or "Unassigned" for row in prog_budgets] if prog_budgets else []
         budget_values = [row["budgeted"] for row in prog_budgets] if prog_budgets else []
-        
+
         # Sort and select top 10 if too many
         sorted_data = sorted(zip(prog_names, budget_values), key=lambda x: x[1], reverse=True) if prog_names else []
         if len(sorted_data) > 10:
@@ -4544,12 +4614,12 @@ class DashboardPage(QWidget):
         else:
             prog_names = []
             budget_values = []
-        
+
         # Create gradient colors
         colors = [plt.cm.Blues(0.3 + 0.7*x/max(budget_values)) for x in budget_values] if budget_values else []
-        
+
         bars = ax.barh(prog_names, budget_values, color=colors, height=0.6) if prog_names else []
-        
+
         # Add value labels
         for bar in bars:
             width = bar.get_width()
@@ -4557,7 +4627,7 @@ class DashboardPage(QWidget):
                    f'{width:,.0f}',
                    ha='right', va='center',
                    color='white', fontsize=9, fontweight='bold')
-        
+
         # Styling
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -4565,7 +4635,7 @@ class DashboardPage(QWidget):
         ax.xaxis.grid(True, linestyle='--', alpha=0.4)
         ax.set_axisbelow(True)
         ax.set_title("Budget Allocation by Program", pad=15, fontsize=12, fontweight='bold')
-        
+
         fig.tight_layout()
         self.budget_program_chart.draw()
 
@@ -4574,17 +4644,17 @@ class DashboardPage(QWidget):
         card = self.create_card("Transaction Summary", "#17a2b8")
         layout = QVBoxLayout(card)
         layout.setSpacing(15)
-        
+
         # Modern type indicators
         type_container = QWidget()
         type_layout = QHBoxLayout(type_container)
         type_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         def type_indicator(color, label):
             widget = QWidget()
             widget_layout = QHBoxLayout(widget)
             widget_layout.setSpacing(8)
-            
+
             dot = QLabel()
             dot.setFixedSize(14, 14)
             dot.setStyleSheet(f"""
@@ -4592,27 +4662,27 @@ class DashboardPage(QWidget):
                 border-radius: 7px;
                 border: 2px solid white;
             """)
-            
+
             label = QLabel(label)
             label.setStyleSheet("""
                 font-size: 13px;
                 color: #495057;
                 font-weight: 500;
             """)
-            
+
             widget_layout.addWidget(dot)
             widget_layout.addWidget(label)
             widget_layout.addStretch()
             return widget
-        
+
         self.funds_indicator = type_indicator("#007bff", "Funds: 0")
         self.expenses_indicator = type_indicator("#dc3545", "Expenses: 0")
-        
+
         type_layout.addWidget(self.funds_indicator)
         type_layout.addWidget(self.expenses_indicator)
         type_layout.addStretch()
         layout.addWidget(type_container)
-        
+
         # Modern table with hover effects
         self.transaction_table = QTableWidget()
         self.transaction_table.setColumnCount(4)
@@ -4646,7 +4716,7 @@ class DashboardPage(QWidget):
         self.transaction_table.setAlternatingRowColors(True)
         self.transaction_table.setMinimumHeight(250)
         layout.addWidget(self.transaction_table)
-        
+
         self.cards_grid.addWidget(card, 1, 1)
 
     def setup_projects_card(self):
@@ -4654,11 +4724,11 @@ class DashboardPage(QWidget):
         card = self.create_card("Programs & Projects", "#6f42c1")
         layout = QVBoxLayout(card)
         layout.setSpacing(15)
-        
+
         # Modern stats cards
         stats_row = QHBoxLayout()
         stats_row.setSpacing(15)
-        
+
         def mini_stat(value, label, color):
             widget = QWidget()
             widget.setStyleSheet(f"""
@@ -4669,7 +4739,7 @@ class DashboardPage(QWidget):
             """)
             widget_layout = QVBoxLayout(widget)
             widget_layout.setSpacing(4)
-            
+
             value_label = QLabel(str(value))
             value_label.setStyleSheet(f"""
                 font-size: 18px;
@@ -4677,7 +4747,7 @@ class DashboardPage(QWidget):
                 color: {color};
             """)
             value_label.setAlignment(Qt.AlignCenter)
-            
+
             label_label = QLabel(label)
             label_label.setStyleSheet("""
                 font-size: 12px;
@@ -4685,26 +4755,26 @@ class DashboardPage(QWidget):
                 font-weight: 500;
             """)
             label_label.setAlignment(Qt.AlignCenter)
-            
+
             widget_layout.addWidget(value_label)
             widget_layout.addWidget(label_label)
             return widget
-        
+
         self.programs_stat = mini_stat("0", "Programs", "#6f42c1")
         self.projects_stat = mini_stat("0", "Projects", "#17a2b8")
         self.top_project_stat = mini_stat("-", "Top Project", "#dc3545")
-        
+
         stats_row.addWidget(self.programs_stat)
         stats_row.addWidget(self.projects_stat)
         stats_row.addWidget(self.top_project_stat)
         layout.addLayout(stats_row)
-        
+
         # Modern performance chart
         self.program_performance_chart = FigureCanvas(Figure(figsize=(6, 4), facecolor='none'))
         self.program_performance_chart.setStyleSheet("background: transparent;")
         self.program_performance_chart.setMinimumHeight(300)
         layout.addWidget(self.program_performance_chart)
-        
+
         self.cards_grid.addWidget(card, 2, 0, 1, 2)
 
     def update_projects_card(self, prog_count, proj_count, top_proj, prog_performance):
@@ -4712,23 +4782,23 @@ class DashboardPage(QWidget):
         # Update stats
         self.programs_stat.findChild(QLabel).setText(str(prog_count))
         self.projects_stat.findChild(QLabel).setText(str(proj_count))
-        
+
         if top_proj:
             self.top_project_stat.findChild(QLabel).setText(top_proj["PA_Name"] or "N/A")
             self.top_project_stat.findChildren(QLabel)[1].setText(f"{top_proj['total']:,.0f}")
         else:
             self.top_project_stat.findChild(QLabel).setText("-")
             self.top_project_stat.findChildren(QLabel)[1].setText("0")
-       
+
         # Enhanced program performance chart
         fig = self.program_performance_chart.figure
         fig.clear()
         ax = fig.add_subplot(111)
-        
+
         prog_names = [row["PA_Name"] or "Unassigned" for row in prog_performance] if prog_performance else []
         budgeted = [row["budgeted"] for row in prog_performance] if prog_performance else []
         spent = [abs(row["spent"]) for row in prog_performance] if prog_performance else []
-        
+
         # Sort and limit to top performers if too many
         sorted_data = sorted(zip(prog_names, budgeted, spent), key=lambda x: x[1], reverse=True) if prog_names else []
         if len(sorted_data) > 8:
@@ -4746,16 +4816,16 @@ class DashboardPage(QWidget):
             prog_names = []
             budgeted = []
             spent = []
-        
+
         x = np.arange(len(prog_names))
         width = 0.35
-        
+
         # Create stacked bars with budget as base
         if len(prog_names) > 0:
             p1 = ax.bar(x, budgeted, width, color='#28a745', label='Budgeted', edgecolor='white')
             p2 = ax.bar(x, spent, width, color='#dc3545', label='Spent', edgecolor='white',
                        bottom=[0]*len(budgeted))  # Not actually stacking, just overlapping
-            
+
             # Add utilization percentages
             for i, (b, s) in enumerate(zip(budgeted, spent)):
                 if b > 0:
@@ -4763,7 +4833,7 @@ class DashboardPage(QWidget):
                     ax.text(x[i], max(b, s) * 1.05, f'{utilization:.0f}%',
                            ha='center', va='bottom', fontsize=9,
                            bbox=dict(facecolor='white', edgecolor='#dee2e6', boxstyle='round,pad=0.2'))
-            
+
             # Styling
             ax.set_xticks(x)
             ax.set_xticklabels(prog_names, rotation=45, ha='right')
@@ -4773,7 +4843,7 @@ class DashboardPage(QWidget):
         ax.spines['right'].set_visible(False)
         ax.set_title("Budget vs Actual Spending", pad=15, fontsize=12, fontweight='bold')
         ax.legend(loc='upper right')
-        
+
         fig.tight_layout()
         self.program_performance_chart.draw()
 
@@ -4797,7 +4867,7 @@ class DashboardPage(QWidget):
                 padding: 0 8px;
             }}
         """)
-        
+
         # Add shadow effect
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(15)
@@ -4805,9 +4875,9 @@ class DashboardPage(QWidget):
         shadow.setYOffset(3)
         shadow.setColor(QColor(0, 0, 0, 30))
         card.setGraphicsEffect(shadow)
-        
+
         return card
-    
+
     def get_scrollbar_styles(self):
         """Return modern scrollbar styles"""
         return """
@@ -4833,23 +4903,23 @@ class DashboardPage(QWidget):
                 height: 0px;
             }
         """
-    
+
     def setup_header(self):
         """Setup the dashboard header with title and quick stats"""
         header = QWidget()
         header.setStyleSheet("background: rgba(255,255,255,0.7); border-radius: 12px;")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(20, 15, 20, 15)
-        
+
         # Title with icon
         title_container = QWidget()
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         icon = QLabel()
         icon.setPixmap(QPixmap("Icons/dashboard.svg").scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         title_layout.addWidget(icon)
-        
+
         title = QLabel("Financial Dashboard")
         title.setStyleSheet("""
             font-size: 24px;
@@ -4859,7 +4929,7 @@ class DashboardPage(QWidget):
         """)
         title_layout.addWidget(title)
         title_layout.addStretch()
-        
+
         # Quick stats
         stats_container = QWidget()
         stats_layout = QHBoxLayout(stats_container)
@@ -5048,29 +5118,29 @@ class DashboardPage(QWidget):
         utilization_labels = self.budget_utilization_stat.findChildren(QLabel)
         if len(utilization_labels) > 0:
             utilization_labels[0].setText(f"{utilization:.1f}%")
-    
+
     def update_transaction_card(self, tx_types, recent_tx):
         """Update the transaction summary card with data"""
         # Update type indicators
         funds = next((row["total"] for row in tx_types if row["TransactionType"] == "Funds"), 0) if tx_types else 0
         expenses = next((row["total"] for row in tx_types if row["TransactionType"] == "Expense"), 0) if tx_types else 0
-        
+
         self.funds_indicator.findChild(QLabel).setText(f"Funds: {funds:,.2f}")
         self.expenses_indicator.findChild(QLabel).setText(f"Expenses: {expenses:,.2f}")
-        
+
         # Update recent transactions table
         self.transaction_table.setRowCount(len(recent_tx) if recent_tx else 0)
         if recent_tx:
             for i, row in enumerate(recent_tx):
                 self.transaction_table.setItem(i, 0, QTableWidgetItem(row["TransactionDate"] or ""))
-                
+
                 type_item = QTableWidgetItem(row["TransactionType"] or "")
                 if row["TransactionType"] == "Funds":
                     type_item.setForeground(QColor("#007bff"))
                 else:
                     type_item.setForeground(QColor("#dc3545"))
                 self.transaction_table.setItem(i, 1, type_item)
-                
+
                 amount = row["Amount"]
                 amount_item = QTableWidgetItem(f"{abs(amount):,.2f}")
                 amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -5079,10 +5149,13 @@ class DashboardPage(QWidget):
                 else:
                     amount_item.setForeground(QColor("#dc3545"))
                 self.transaction_table.setItem(i, 2, amount_item)
-                
+
                 self.transaction_table.setItem(i, 3, QTableWidgetItem(row["Reference"] or ""))
         else:
             self.transaction_table.clearContents()
+
+    # Ensure dashboard refreshes after any DB-changing dialog is accepted
+    # This is handled by refresh_all_pages(self) in the main app after add/edit/delete dialogs.
 
 class ReportPage(QWidget):
     def __init__(self):
@@ -5963,6 +6036,23 @@ class AboutSystemDialog(QDialog):
         layout.addLayout(btns)
 # Example usage in a page:
 # Styles and General Design
+def refresh_all_pages(widget):
+    """
+    Call refresh_data() on all pages in the main window's ContentArea.
+    Accepts any widget; traverses up to find the main window with ContentArea.
+    """
+    # Traverse up to find the main window with ContentArea
+    main_window = widget
+    while main_window is not None and not hasattr(main_window, "ContentArea"):
+        main_window = main_window.parent()
+    if main_window is None or not hasattr(main_window, "ContentArea"):
+        return
+    for i in range(main_window.ContentArea.count()):
+        page = main_window.ContentArea.widget(i)
+        if hasattr(page, "refresh_data"):
+            page.refresh_data()
+
+
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
         super().__init__(text, parent)
@@ -6671,25 +6761,34 @@ class SplashScreen(QSplashScreen):
         self.loading_label.setText(message)
         QApplication.processEvents()
 
+
+for cls in [DonorsPage, Categories_SubCategories, Program_Admnistration, Projects_Activities,TransactionsPage, FundPage, BudgetsPage, DashboardPage, ReportPage]:
+    if RefreshablePageMixin not in cls.__bases__:
+        cls.__bases__ = (RefreshablePageMixin,) + cls.__bases__
+    if not hasattr(cls, "refresh_data"):
+        def refresh_data(self):
+            # Fallback: try calling refresh_* or load_data if exists
+            for method in ["refresh_donor_table", "load_subcategories", "refresh_program_table",
+                           "refresh_transaction_table", "refresh_fund_table", "refresh_budget_table",
+                           "load_data", "generate_report"]:
+                if hasattr(self, method):
+                    getattr(self, method)()
+        cls.refresh_data = refresh_data
+
 if __name__ == "__main__":
     import platform
-    # Set Windows AppUserModelID for correct taskbar icon
     if platform.system() == "Windows":
         try:
             import ctypes
-            import platform
-            myappid = u'pinnacle.ledger.nonprofit'  # Arbitrary string, should be unique to your app
+            myappid = u'pinnacle.ledger.nonprofit'
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
 
+    # Create the QApplication and splash screen before using splash
     app = QApplication([])
     splash = SplashScreen()
     splash.show()
-    # Simulate initialization steps (update message if needed)
-    splash.show_loading("Loading modules...")
-    app.processEvents()
-    time.sleep(2)
     splash.show_loading("Connecting to database...")
     app.processEvents()
     time.sleep(2)
@@ -6708,6 +6807,6 @@ if __name__ == "__main__":
     # Taskbar icon is now set via AppUserModelID and window icon
 
     app.exec_()
-   
+  
 
        
