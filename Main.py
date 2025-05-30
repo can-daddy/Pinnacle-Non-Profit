@@ -3,23 +3,29 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import sqlite3
 import sys
-from datetime import datetime
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+import os
+import numpy as np
+import tempfile
+import os
 import matplotlib.pyplot as plt
 import numpy as np
-import binascii
-import os
-from hashlib import pbkdf2_hmac
+from datetime import datetime
+# Matplotlib for charts
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
-def hash_password(password, salt=None):
-    """Hash a password with a salt using PBKDF2-HMAC-SHA256"""
-    if salt is None:
-        salt = binascii.hexlify(os.urandom(16)).decode('utf-8')
-    iterations = 100000
-    dk = pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), iterations)
-    password_hash = binascii.hexlify(dk).decode('utf-8')
-    return password_hash, salt
+# File export
+from openpyxl import Workbook
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import tempfile
+from reportlab.platypus import Image as RLImage
+import os
 
 
 # Create a connection to the SQLite database
@@ -51,7 +57,7 @@ def generate_years(format_type="range", start_year= 2020, num_years=10):
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Pinnacle Non-Profit v1.0")
+        self.setWindowTitle("Pinnacle Ledger – Fund & Budget Manager for Non-Profits v1.0")
         self.setStyleSheet("Background-color:White;")
         # Set Window structure and Design
         Layout = QHBoxLayout()
@@ -71,7 +77,7 @@ class MainWindow(QWidget):
         SidebarLayout = QVBoxLayout()
         LogoIconFrame = QFrame()
         LogoFrameLayout = QVBoxLayout()
-        LogoName = QLabel("Pinnacle Non-Profit")
+        LogoName = QLabel("Pinnacle Ledger")
         LogoName.setAlignment(Qt.AlignCenter)
         LogoName.setStyleSheet("font-size: 20px; font-weight: bold;color: white;")
         LogoIconFrame.setFixedHeight(70)
@@ -143,12 +149,13 @@ class MainWindow(QWidget):
             border-color: #1B263B;  /* Slightly lighter navy on hover */
             }
         """)
-        AccountButton = QPushButton()
-        AccountButton.setFlat(True)
-        AccountButton.setIcon(QIcon("Icons/account.svg"))  # Put your icon in Icons/account_icon.png
-        AccountButton.setIconSize(QSize(32, 32))  # Increased size
-        AccountButton.setToolTip("Account")
-        AccountButton.setStyleSheet("""
+        Morebutton.clicked.connect(lambda: AboutSystemDialog(self).exec_())
+        self.AccountButton = QPushButton()
+        self.AccountButton.setFlat(True)
+        self.AccountButton.setIcon(QIcon("Icons/account.svg"))  # Put your icon in Icons/account_icon.png
+        self.AccountButton.setIconSize(QSize(32, 32))  # Increased size
+        self.AccountButton.setToolTip("Account")
+        self.AccountButton.setStyleSheet("""
             QPushButton {
             background: transparent;
             border-radius: 8px;
@@ -158,9 +165,22 @@ class MainWindow(QWidget):
             background: #e0e0e0;
             }
         """)
+        self.AccountButton.clicked.connect(lambda: self.Change_orgName(self).exec_())
+        self.Orgname = QLabel("Organization Name")
+        self.Orgname.setStyleSheet("""
+            Background-color: #1E90FF;
+            font-family: 'Lato', sans-serif;
+            font-weight: 600;
+            font-size: 18px;
+            color: White;
+            letter-spacing: 0.5px;
+        """)
+        # Load saved org name at startup
+        self.Orgname.setText(MainWindow.Change_orgName.get_org_name())
         MainBodyHeaderLayout.addWidget(Todaydate, alignment=Qt.AlignLeft)
         MainBodyHeaderLayout.addStretch()
-        MainBodyHeaderLayout.addWidget(AccountButton, alignment=Qt.AlignRight)
+        MainBodyHeaderLayout.addWidget(self.Orgname, alignment=Qt.AlignRight)
+        MainBodyHeaderLayout.addWidget(self.AccountButton, alignment=Qt.AlignRight)
         MainBodyHeaderLayout.addWidget(Morebutton, alignment=Qt.AlignRight)
         MainBodyHeader.setLayout(MainBodyHeaderLayout)
         MainBodyHeader.setObjectName("MainBodyHeader")
@@ -183,8 +203,8 @@ class MainWindow(QWidget):
         MainBodyHeader.setGraphicsEffect(shadow)
         MainBodyLayout.addWidget(MainBodyHeader, alignment=Qt.AlignTop)
         # content area
-        ContentArea = QStackedWidget()
-        ContentArea.setStyleSheet("Background-color:White;")
+        self.ContentArea = QStackedWidget()
+        self.ContentArea.setStyleSheet("Background-color:White;")
         # Create the content area widgets
         DashboardWidget = DashboardPage()
         DonorsWidget = DonorsPage()
@@ -195,30 +215,104 @@ class MainWindow(QWidget):
         ProgramsWidget = Program_Admnistration()
         ProjectsWidget = Projects_Activities()
         ReportsWidget = ReportPage()
-        ContentArea.addWidget(DashboardWidget)
-        ContentArea.addWidget(DonorsWidget)
-        ContentArea.addWidget(FundsWidget)
-        ContentArea.addWidget(BudgetsWidget)
-        ContentArea.addWidget(TransactionsWidget)
-        ContentArea.addWidget(CategoriesWidget)
-        ContentArea.addWidget(ProgramsWidget)
-        ContentArea.addWidget(ProjectsWidget)
-        ContentArea.addWidget(ReportsWidget)
-        MainBodyLayout.addWidget(ContentArea)
+        # self.user_management_widget = UserManagementPage(self.current_user)
+        self.ContentArea.addWidget(DashboardWidget)
+        self.ContentArea.addWidget(DonorsWidget)
+        self.ContentArea.addWidget(FundsWidget)
+        self.ContentArea.addWidget(BudgetsWidget)
+        self.ContentArea.addWidget(TransactionsWidget)
+        self.ContentArea.addWidget(CategoriesWidget)
+        self.ContentArea.addWidget(ProgramsWidget)
+        self.ContentArea.addWidget(ProjectsWidget)
+        self.ContentArea.addWidget(ReportsWidget)
+        MainBodyLayout.addWidget(self.ContentArea)
         MainBody.setLayout(MainBodyLayout)
         Layout.addWidget(MainBody)
         # Set the main layout for the window
         self.setLayout(Layout)
         # Connect sidebar buttons to change content area
-        self.DashboardButton.clicked.connect(lambda: ContentArea.setCurrentIndex(0))
-        self.DonorButton.clicked.connect(lambda: ContentArea.setCurrentIndex(1))
-        self.FundButton.clicked.connect(lambda: ContentArea.setCurrentIndex(2))
-        self.BudgetButton.clicked.connect(lambda: ContentArea.setCurrentIndex(3))
-        self.TransactionButton.clicked.connect(lambda: ContentArea.setCurrentIndex(4))
-        self.CategoriesButton.clicked.connect(lambda: ContentArea.setCurrentIndex(5))
-        self.ProgramsButton.clicked.connect(lambda: ContentArea.setCurrentIndex(6))
-        self.ProjectsButton.clicked.connect(lambda: ContentArea.setCurrentIndex(7))
-        self.ReportButton.clicked.connect(lambda: ContentArea.setCurrentIndex(8))
+        self.DashboardButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(0))
+        self.DonorButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(1))
+        self.FundButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(2))
+        self.BudgetButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(3))
+        self.TransactionButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(4))
+        self.CategoriesButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(5))
+        self.ProgramsButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(6))
+        self.ProjectsButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(7))
+        self.ReportButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(8))
+        # self.AccountButton.clicked.connect(lambda: self.ContentArea.setCurrentIndex(9))
+    
+    class Change_orgName(QDialog):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Change Organization Name")
+            self.setMinimumWidth(400)
+            self.setStyleSheet(DialogStyles())
+            layout = QVBoxLayout(self)
+
+            title = QLabel("Change Organization Name")
+            title.setStyleSheet("font-size: 20px; font-weight: bold; color: #1B263B; margin-bottom: 10px;")
+            layout.addWidget(title, alignment=Qt.AlignHCenter)
+
+            form = QFormLayout()
+            self.org_input = QLineEdit()
+            self.org_input.setPlaceholderText("Enter Organization Name")
+            self.org_input.setText(self.load_org_name())
+            form.addRow("Organization Name:", self.org_input)
+            layout.addLayout(form)
+
+            btns = QHBoxLayout()
+            btns.addStretch()
+            save_btn = button("Save", "primary", "md")
+            cancel_btn = button("Cancel", "secondary", "md")
+            btns.addWidget(save_btn)
+            btns.addWidget(cancel_btn)
+            layout.addLayout(btns)
+
+            cancel_btn.clicked.connect(self.reject)
+            save_btn.clicked.connect(self.save_org_name)
+
+        def load_org_name(self):
+            # Store org name in a simple file in user's home directory
+            org_file = os.path.join(os.path.expanduser("~"), ".pinnacle_orgname.txt")
+            if os.path.exists(org_file):
+                try:
+                    with open(org_file, "r", encoding="utf-8") as f:
+                        return f.read().strip()
+                except Exception:
+                    return "Organization Name"
+            return "Organization Name"
+
+        def save_org_name(self):
+            org_name = self.org_input.text().strip()
+            if not org_name:
+                QMessageBox.warning(self, "Error", "Organization name cannot be empty.")
+                return
+            org_file = os.path.join(os.path.expanduser("~"), ".pinnacle_orgname.txt")
+            try:
+                with open(org_file, "w", encoding="utf-8") as f:
+                    f.write(org_name)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save organization name: {e}")
+                return
+            # Update main window label if possible
+            if self.parent() and hasattr(self.parent(), "Orgname"):
+                self.parent().Orgname.setText(org_name)
+            self.accept()
+
+        @staticmethod
+        def get_org_name():
+            org_file = os.path.join(os.path.expanduser("~"), ".pinnacle_orgname.txt")
+            if os.path.exists(org_file):
+                try:
+                    with open(org_file, "r", encoding="utf-8") as f:
+                        return f.read().strip()
+                except Exception:
+                    return "Organization Name"
+            return "Organization Name"
+
+    # In MainWindow __init__, after self.Orgname = QLabel("Organization Name")
+        
 
 class DonorsPage(QWidget):
     def __init__(self):
@@ -232,6 +326,7 @@ class DonorsPage(QWidget):
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Donor")
         self.AddButton.clicked.connect(self.DonorForm)
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofDonors,title="Donors List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
         ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -613,6 +708,7 @@ class Categories_SubCategories(QWidget):
         self.Title = Title("Categories & Subcategories")
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New SubCategory")
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofCategories, title="Categories & Subcategories List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
         self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -1077,6 +1173,7 @@ class Program_Admnistration(QWidget):
         self.Title = Title("Programs & Administration")
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Program/Admin")
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda :export_table_to_file(self.TableofPrograms, title="Programs & Administration List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
         self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -1304,6 +1401,7 @@ class Projects_Activities(QWidget):
         self.Title = Title("Projects & Activities")
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Project/Activity")
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda : export_table_to_file(self.TableofActivities, title="Projects & Activities List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
         self.ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -1956,6 +2054,7 @@ class TransactionsPage(QWidget):
         # Connect to the add_fund method of the FundPage instance in the main window
         self.addFund.clicked.connect(lambda: self.parent().parent().parent().findChild(FundPage).add_fund())
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofTransactions, title="Transactions List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
         ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -2211,13 +2310,15 @@ class TransactionsPage(QWidget):
         # Program ComboBox
         program_input = QComboBox()
         program_input.addItem("None", None)
-        conn = get_db_connection()
+        conn = None
         try:
+            conn = get_db_connection()
             cur = conn.cursor()
             cur.execute("SELECT PA_Id, PA_Name FROM Program_administrations")
             programs = cur.fetchall()
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
         for prog in programs:
             program_input.addItem(prog["PA_Name"], prog["PA_Id"])
 
@@ -2885,6 +2986,7 @@ class FundPage(QWidget):
         self.Title = Title("Funds")
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda : export_table_to_file(self.TableofFunds,title="Funds List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
         ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -2934,8 +3036,8 @@ class FundPage(QWidget):
         # Table of Funds
         self.TableofFunds = QTableWidget()
         self.TableofFunds.setStyleSheet(TableStyles())
-        self.TableofFunds.setColumnCount(9)
-        self.TableofFunds.setHorizontalHeaderLabels(["Name", "Budget Year" ,"Date", "Donor Name","Program/Admin","Project", "FundType", "Amount","Actions"])
+        self.TableofFunds.setColumnCount(8)
+        self.TableofFunds.setHorizontalHeaderLabels(["Name", "Budget Year", "Donor Name","Program/Admin","Project", "FundType", "Amount","Actions"])
         self.TableofFunds.horizontalHeader().setStretchLastSection(True)
         self.TableofFunds.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         Layout.addWidget(self.TableofFunds)
@@ -2955,47 +3057,44 @@ class FundPage(QWidget):
         type_val = self.type_filter.currentText()
         year_val = self.year_filter.currentText()
 
-        # Query: Fund info + Donor + Program + Project + SUM of all related Transaction amounts for each Fund
+        # Query: Select all funds and sum all related transactions using FundTransactions
         query = """
             SELECT 
                 f.FundID, 
                 f.FundName, 
-                f.initialDate as Date, 
-                d.Name as DonorName, 
-                f.FundType,
                 f.BudgetYear,
+                d.Name as DonorName,
                 pa.PA_Name as ProgramName,
                 p.ProjectName,
-                IFNULL(SUM(t.Amount), 0) as TotalAmount
+                f.FundType,
+                IFNULL((
+                    SELECT SUM(t.Amount)
+                    FROM FundTransactions ft
+                    JOIN Transactions t ON ft.Transaction_id = t.TransactionID
+                    WHERE ft.fund_id = f.FundID
+                ), 0) as TotalAmount
             FROM Fund f
             LEFT JOIN Donors d ON f.DonorId = d.DonorID
             LEFT JOIN Program_administrations pa ON f.ProgramID = pa.PA_Id
             LEFT JOIN Projects p ON f.ProjectID = p.ProjectID
-            LEFT JOIN FundTransactions ft ON f.FundID = ft.Fund_id
-            LEFT JOIN Transactions t ON ft.Transaction_id = t.TransactionID
             WHERE 1=1
         """
         params = []
         if type_val != "All":
             query += " AND f.FundType = ?"
             params.append(type_val)
-        if year_val and year_val != "All":
+        if year_val != "All":
             query += " AND f.BudgetYear = ?"
             params.append(year_val)
-            # Always group by FundID to aggregate transactions for each fund
-            query += " GROUP BY f.FundID"
-            # If year filter is set, add BudgetYear condition
-            if year_val and year_val != "All":
-                query += " HAVING f.BudgetYear = ?"
-                params.append(year_val)
-            # If search is used, add it after GROUP BY/HAVING
-            if search_text:
-                if "HAVING" in query:
-                    query += " AND"
-                else:
-                    query += " HAVING"
-                    query += " (LOWER(f.FundName) LIKE ? OR LOWER(f.FundType) LIKE ? OR LOWER(d.Name) LIKE ? OR LOWER(pa.PA_Name) LIKE ? OR LOWER(p.ProjectName) LIKE ?)"
-                    params.extend([f"%{search_text}%"] * 5)
+        if search_text:
+            query += """ AND (
+                LOWER(f.FundName) LIKE ? OR
+                LOWER(f.FundType) LIKE ? OR
+                LOWER(d.Name) LIKE ? OR
+                LOWER(pa.PA_Name) LIKE ? OR
+                LOWER(p.ProjectName) LIKE ?
+            )"""
+            params.extend([f"%{search_text}%"] * 5)
 
         conn = get_db_connection()
         try:
@@ -3012,12 +3111,11 @@ class FundPage(QWidget):
             table.setRowHeight(row_idx, 45)
             table.setItem(row_idx, 0, QTableWidgetItem(fund["FundName"] or ""))
             table.setItem(row_idx, 1, QTableWidgetItem(str(fund["BudgetYear"]) if fund["BudgetYear"] else ""))
-            table.setItem(row_idx, 2, QTableWidgetItem(fund["Date"] or ""))
-            table.setItem(row_idx, 3, QTableWidgetItem(fund["DonorName"] or ""))
-            table.setItem(row_idx, 4, QTableWidgetItem(fund["ProgramName"] if fund["ProgramName"] else "All Programs"))
-            table.setItem(row_idx, 5, QTableWidgetItem(fund["ProjectName"] if fund["ProjectName"] else "All Projects"))
-            table.setItem(row_idx, 6, QTableWidgetItem(fund["FundType"] or ""))
-            table.setItem(row_idx, 7, QTableWidgetItem(str(fund["TotalAmount"])))
+            table.setItem(row_idx, 2, QTableWidgetItem(fund["DonorName"] or ""))
+            table.setItem(row_idx, 3, QTableWidgetItem(fund["ProgramName"] if fund["ProgramName"] else "All Programs"))
+            table.setItem(row_idx, 4, QTableWidgetItem(fund["ProjectName"] if fund["ProjectName"] else "All Projects"))
+            table.setItem(row_idx, 5, QTableWidgetItem(fund["FundType"] or ""))
+            table.setItem(row_idx, 6, QTableWidgetItem(f"{fund['TotalAmount']:,}"))
             action_widget = QWidget()
             action_layout = QHBoxLayout()
             edit_btn = TableButton("Edit")
@@ -3026,7 +3124,7 @@ class FundPage(QWidget):
             action_layout.addWidget(delete_btn)
             action_layout.setContentsMargins(0, 0, 0, 0)
             action_widget.setLayout(action_layout)
-            table.setCellWidget(row_idx, 8, action_widget)
+            table.setCellWidget(row_idx, 7, action_widget)
             edit_btn.clicked.connect(lambda _, fid=fund["FundID"]: self.edit_fund(fid))
             delete_btn.clicked.connect(lambda _, fid=fund["FundID"]: self.delete_fund(fid))
 
@@ -3144,8 +3242,8 @@ class FundPage(QWidget):
             project_id = project_combo.currentData()
             fundtype = fundtype_input.currentText().strip()
             # Allow program_id and project_id to be None (null)
-            if not name or not fundtype or not budget_year:
-                QMessageBox.warning(dlg, "Error", "Name, Budget Year, and FundType are required.")
+            if not name or not fundtype or not budget_year or not donor_id:
+                QMessageBox.warning(dlg, "Error", "Name, Budget Year, Donor Name,and FundType are required.")
                 return
             # Uniqueness validation for FundName
             try:
@@ -3327,8 +3425,8 @@ class FundPage(QWidget):
             project_id = project_combo.currentData()
             fundtype = fundtype_input.currentText().strip()
             # Validation: Name, Budget Year, FundType required
-            if not name or not fundtype or not budget_year:
-                QMessageBox.warning(dlg, "Error", "Name, Budget Year, and FundType are required.")
+            if not name or not fundtype or not budget_year or not donor_id:
+                QMessageBox.warning(dlg, "Error", "Name, Budget Year, Donor Name and FundType are required.")
                 return
             # If both program and project are None, force Unrestricted
             if program_id is None and project_id is None:
@@ -3378,6 +3476,7 @@ class BudgetsPage(QWidget):
         self.Title = Title("Budgets")
         self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Budget")
         self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofBudgets, title="Budgets List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
         ContentAreaHeaderLayout.addWidget(self.AddButton, alignment=Qt.AlignRight)
@@ -4028,11 +4127,9 @@ class DashboardPage(QWidget):
         
     def setup_ui(self):
         """Initialize all UI components with modern design"""
-        # Main layout with subtle gradient background
         self.setStyleSheet("""
             DashboardPage {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #f8f9fa, stop:1 #e9ecef);
+                background: #f5f7fa;
             }
         """)
         
@@ -4069,6 +4166,489 @@ class DashboardPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(scroll)
+    
+    def setup_fund_card(self):
+        """Fund Overview card with enhanced charts"""
+        card = self.create_card("Fund Overview", "#007bff")
+        layout = QVBoxLayout(card)
+        layout.setSpacing(15)
+        
+        # Stats row with modern design
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(15)
+        
+        def stat_box(value, label, color, icon=None):
+            widget = QWidget()
+            widget.setStyleSheet(f"""
+                background: white;
+                border-radius: 8px;
+                padding: 12px;
+                border-left: 4px solid {color};
+            """)
+            box_layout = QVBoxLayout(widget)
+            box_layout.setSpacing(4)
+            
+            if icon:
+                icon_label = QLabel()
+                icon_label.setPixmap(QPixmap(icon).scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                box_layout.addWidget(icon_label, alignment=Qt.AlignRight)
+            
+            value_label = QLabel(str(value))
+            value_label.setStyleSheet(f"""
+                font-size: 18px;
+                font-weight: bold;
+                color: {color};
+            """)
+            
+            label_label = QLabel(label)
+            label_label.setStyleSheet("""
+                font-size: 12px;
+                color: #6c757d;
+            """)
+            
+            box_layout.addWidget(value_label)
+            box_layout.addWidget(label_label)
+            return widget
+        
+        self.fund_received_stat = stat_box("0", "Received", "#007bff", "Icons/funds.svg")
+        self.fund_allocated_stat = stat_box("0", "Allocated", "#28a745", "Icons/budget.svg")
+        self.fund_available_stat = stat_box("0", "Available", "#dc3545", "Icons/wallet.svg")
+        
+        stats_row.addWidget(self.fund_received_stat)
+        stats_row.addWidget(self.fund_allocated_stat)
+        stats_row.addWidget(self.fund_available_stat)
+        layout.addLayout(stats_row)
+        
+        # Enhanced charts container
+        charts_container = QWidget()
+        charts_layout = QHBoxLayout(charts_container)
+        charts_layout.setContentsMargins(0, 0, 0, 0)
+        charts_layout.setSpacing(15)
+        
+        # Modern bar chart with grid and annotations
+        self.funds_flow_chart = FigureCanvas(Figure(figsize=(6, 4), facecolor='none'))
+        self.funds_flow_chart.setStyleSheet("background: transparent;")
+        self.funds_flow_chart.setMinimumHeight(300)
+        
+        # Modern pie chart with donut effect
+        self.funds_type_chart = FigureCanvas(Figure(figsize=(4, 4), facecolor='none'))
+        self.funds_type_chart.setStyleSheet("background: transparent;")
+        self.funds_type_chart.setMinimumHeight(300)
+        
+        charts_layout.addWidget(self.funds_flow_chart, 2)
+        charts_layout.addWidget(self.funds_type_chart, 1)
+        layout.addWidget(charts_container)
+        
+        self.cards_grid.addWidget(card, 0, 0, 1, 2)
+        
+    def update_fund_card(self, total_funds, total_budget, fund_types):
+        """Update the fund overview card with enhanced visualizations"""
+        available = total_funds - total_budget
+        restricted = fund_types.get("Restricted", 0)
+        unrestricted = fund_types.get("Unrestricted", 0)
+        
+        # Update stats
+        self.fund_received_stat.findChild(QLabel).setText(f"{total_funds:,.2f}")
+        self.fund_allocated_stat.findChild(QLabel).setText(f"{total_budget:,.2f}")
+        self.fund_available_stat.findChild(QLabel).setText(f"{available:,.2f}")
+        
+        # Enhanced funds flow chart
+        fig1 = self.funds_flow_chart.figure
+        fig1.clear()
+        ax1 = fig1.add_subplot(111)
+        
+        labels = ["Received", "Allocated", "Available"]
+        values = [total_funds, total_budget, available]
+        colors = ["#007bff", "#28a745", "#dc3545"]
+        
+        # Modern bar chart with effects
+        bars = ax1.bar(labels, values, color=colors, width=0.6, edgecolor='white', linewidth=2)
+        
+        # Add value labels inside bars
+        for bar in bars:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height/2,
+                    f'{height:,.0f}',
+                    ha='center', va='center',
+                    color='white', fontsize=10, fontweight='bold')
+        
+        # Styling
+        ax1.spines['top'].set_visible(False)
+        ax1.spines['right'].set_visible(False)
+        ax1.spines['left'].set_visible(False)
+        ax1.yaxis.grid(True, linestyle='--', alpha=0.4)
+        ax1.set_axisbelow(True)
+        ax1.set_title("Funds Flow Overview", pad=20, fontsize=12, fontweight='bold')
+        ax1.tick_params(axis='x', which='both', bottom=False, top=False)
+        
+        fig1.tight_layout()
+        self.funds_flow_chart.draw()
+        
+        # Enhanced funds type chart (donut style)
+        fig2 = self.funds_type_chart.figure
+        fig2.clear()
+        ax2 = fig2.add_subplot(111)
+        
+        labels = ["Restricted", "Unrestricted"]
+        values = [restricted, unrestricted]
+        colors = ["#6f42c1", "#17a2b8"]
+        explode = (0.05, 0.05)  # Slight separation
+        
+        # Outer pie (donut effect)
+        wedges, texts, autotexts = ax2.pie(
+            values, 
+            labels=labels,
+            colors=colors,
+            startangle=90,
+            explode=explode,
+            wedgeprops=dict(width=0.4, edgecolor='w'),  # Creates donut
+            textprops={'fontsize': 10},
+            autopct=lambda p: f'{p:.1f}%\n({p*sum(values)/100:,.0f})'
+        )
+        
+        # Inner circle for clean look
+        centre_circle = plt.Circle((0,0), 0.2, color='white')
+        ax2.add_artist(centre_circle)
+        
+        ax2.set_title("Funds by Type", pad=20, fontsize=12, fontweight='bold')
+        ax2.legend(wedges, labels, loc="center", bbox_to_anchor=(0.5, -0.1))
+        
+        fig2.tight_layout()
+        self.funds_type_chart.draw()
+
+    def setup_budget_card(self):
+        """Budget Summary card with enhanced visualization"""
+        card = self.create_card("Budget Summary", "#28a745")
+        layout = QVBoxLayout(card)
+        layout.setSpacing(15)
+        
+        # Modern utilization meter with label
+        meter_container = QWidget()
+        meter_layout = QVBoxLayout(meter_container)
+        meter_layout.setSpacing(8)
+        
+        meter_header = QHBoxLayout()
+        meter_header.addWidget(QLabel("Budget Utilization"))
+        meter_header.addStretch()
+        self.utilization_value = QLabel("0%")
+        self.utilization_value.setStyleSheet("""
+            font-weight: bold; 
+            color: #28a745;
+            font-size: 14px;
+        """)
+        meter_header.addWidget(self.utilization_value)
+        meter_layout.addLayout(meter_header)
+        
+        # Enhanced progress bar with animation effect
+        self.utilization_meter = QProgressBar()
+        self.utilization_meter.setRange(0, 100)
+        self.utilization_meter.setTextVisible(False)
+        self.utilization_meter.setStyleSheet("""
+            QProgressBar {
+                height: 16px;
+                background: #e9ecef;
+                border-radius: 8px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #28a745, stop:0.5 #5cb85c, stop:1 #7cbf7c
+                );
+                border-radius: 8px;
+                border: 1px solid #218838;
+            }
+        """)
+        meter_layout.addWidget(self.utilization_meter)
+        layout.addWidget(meter_container)
+        
+        # Modern horizontal bar chart
+        self.budget_program_chart = FigureCanvas(Figure(figsize=(6, 4), facecolor='none'))
+        self.budget_program_chart.setStyleSheet("background: transparent;")
+        self.budget_program_chart.setMinimumHeight(300)
+        layout.addWidget(self.budget_program_chart)
+        
+        self.cards_grid.addWidget(card, 1, 0)
+
+    def update_budget_card(self, total_budget, total_expense, prog_budgets):
+        """Update the budget summary card with enhanced visualizations"""
+        # Update utilization meter with animation
+        utilization = (total_expense / total_budget * 100) if total_budget else 0
+        self.utilization_value.setText(f"{utilization:.1f}%")
+        
+        # Animate the progress bar
+        animation = QPropertyAnimation(self.utilization_meter, b"value")
+        animation.setDuration(1000)
+        animation.setStartValue(0)
+        animation.setEndValue(int(utilization))
+        animation.setEasingCurve(QEasingCurve.OutQuad)
+        animation.start()
+        
+        # Enhanced program budget chart
+        fig = self.budget_program_chart.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        
+        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_budgets]
+        budget_values = [row["budgeted"] for row in prog_budgets]
+        
+        # Sort and select top 10 if too many
+        sorted_data = sorted(zip(prog_names, budget_values), key=lambda x: x[1], reverse=True)
+        if len(sorted_data) > 10:
+            sorted_data = sorted_data[:10]
+            prog_names = [x[0] for x in sorted_data] + ["Others"]
+            others_sum = sum(x[1] for x in sorted_data[10:])
+            budget_values = [x[1] for x in sorted_data[:10]] + [others_sum]
+        
+        # Create gradient colors
+        colors = [plt.cm.Blues(0.3 + 0.7*x/max(budget_values)) for x in budget_values]
+        
+        bars = ax.barh(prog_names, budget_values, color=colors, height=0.6)
+        
+        # Add value labels
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width * 0.95, bar.get_y() + bar.get_height()/2,
+                   f'{width:,.0f}',
+                   ha='right', va='center',
+                   color='white', fontsize=9, fontweight='bold')
+        
+        # Styling
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.xaxis.grid(True, linestyle='--', alpha=0.4)
+        ax.set_axisbelow(True)
+        ax.set_title("Budget Allocation by Program", pad=15, fontsize=12, fontweight='bold')
+        
+        fig.tight_layout()
+        self.budget_program_chart.draw()
+
+    def setup_transaction_card(self):
+        """Transaction Summary card with modern design"""
+        card = self.create_card("Transaction Summary", "#17a2b8")
+        layout = QVBoxLayout(card)
+        layout.setSpacing(15)
+        
+        # Modern type indicators
+        type_container = QWidget()
+        type_layout = QHBoxLayout(type_container)
+        type_layout.setContentsMargins(0, 0, 0, 0)
+        
+        def type_indicator(color, label):
+            widget = QWidget()
+            widget_layout = QHBoxLayout(widget)
+            widget_layout.setSpacing(8)
+            
+            dot = QLabel()
+            dot.setFixedSize(14, 14)
+            dot.setStyleSheet(f"""
+                background: {color};
+                border-radius: 7px;
+                border: 2px solid white;
+            """)
+            
+            label = QLabel(label)
+            label.setStyleSheet("""
+                font-size: 13px;
+                color: #495057;
+                font-weight: 500;
+            """)
+            
+            widget_layout.addWidget(dot)
+            widget_layout.addWidget(label)
+            widget_layout.addStretch()
+            return widget
+        
+        self.funds_indicator = type_indicator("#007bff", "Funds: 0")
+        self.expenses_indicator = type_indicator("#dc3545", "Expenses: 0")
+        
+        type_layout.addWidget(self.funds_indicator)
+        type_layout.addWidget(self.expenses_indicator)
+        type_layout.addStretch()
+        layout.addWidget(type_container)
+        
+        # Modern table with hover effects
+        self.transaction_table = QTableWidget()
+        self.transaction_table.setColumnCount(4)
+        self.transaction_table.setHorizontalHeaderLabels(["Date", "Type", "Amount", "Reference"])
+        self.transaction_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.transaction_table.verticalHeader().setVisible(False)
+        self.transaction_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.transaction_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.transaction_table.setStyleSheet("""
+            QTableWidget {
+                background: white;
+                border-radius: 8px;
+                border: 1px solid #dee2e6;
+                font-size: 12px;
+                alternate-background-color: #f8f9fa;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #dee2e6;
+            }
+            QTableWidget::item:hover {
+                background: #e9f5ff;
+            }
+            QHeaderView::section {
+                background: #f8f9fa;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+            }
+        """)
+        self.transaction_table.setAlternatingRowColors(True)
+        self.transaction_table.setMinimumHeight(250)
+        layout.addWidget(self.transaction_table)
+        
+        self.cards_grid.addWidget(card, 1, 1)
+
+    def setup_projects_card(self):
+        """Projects Insights card with modern visualizations"""
+        card = self.create_card("Programs & Projects", "#6f42c1")
+        layout = QVBoxLayout(card)
+        layout.setSpacing(15)
+        
+        # Modern stats cards
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(15)
+        
+        def mini_stat(value, label, color):
+            widget = QWidget()
+            widget.setStyleSheet(f"""
+                background: white;
+                border-radius: 8px;
+                padding: 12px;
+                border-top: 3px solid {color};
+            """)
+            widget_layout = QVBoxLayout(widget)
+            widget_layout.setSpacing(4)
+            
+            value_label = QLabel(str(value))
+            value_label.setStyleSheet(f"""
+                font-size: 18px;
+                font-weight: bold;
+                color: {color};
+            """)
+            value_label.setAlignment(Qt.AlignCenter)
+            
+            label_label = QLabel(label)
+            label_label.setStyleSheet("""
+                font-size: 12px;
+                color: #6c757d;
+                font-weight: 500;
+            """)
+            label_label.setAlignment(Qt.AlignCenter)
+            
+            widget_layout.addWidget(value_label)
+            widget_layout.addWidget(label_label)
+            return widget
+        
+        self.programs_stat = mini_stat("0", "Programs", "#6f42c1")
+        self.projects_stat = mini_stat("0", "Projects", "#17a2b8")
+        self.top_project_stat = mini_stat("-", "Top Project", "#dc3545")
+        
+        stats_row.addWidget(self.programs_stat)
+        stats_row.addWidget(self.projects_stat)
+        stats_row.addWidget(self.top_project_stat)
+        layout.addLayout(stats_row)
+        
+        # Modern performance chart
+        self.program_performance_chart = FigureCanvas(Figure(figsize=(6, 4), facecolor='none'))
+        self.program_performance_chart.setStyleSheet("background: transparent;")
+        self.program_performance_chart.setMinimumHeight(300)
+        layout.addWidget(self.program_performance_chart)
+        
+        self.cards_grid.addWidget(card, 2, 0, 1, 2)
+
+    def update_projects_card(self, prog_count, proj_count, top_proj, prog_performance):
+        """Update the projects insights card with enhanced visualizations"""
+        # Update stats
+        self.programs_stat.findChild(QLabel).setText(str(prog_count))
+        self.projects_stat.findChild(QLabel).setText(str(proj_count))
+        
+        if top_proj:
+            self.top_project_stat.findChild(QLabel).setText(top_proj["PA_Name"] or "N/A")
+            self.top_project_stat.findChildren(QLabel)[1].setText(f"{top_proj['total']:,.0f}")
+       
+        # Enhanced program performance chart
+        fig = self.program_performance_chart.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        
+        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_performance]
+        budgeted = [row["budgeted"] for row in prog_performance]
+        spent = [abs(row["spent"]) for row in prog_performance]
+        
+        # Sort and limit to top performers if too many
+        sorted_data = sorted(zip(prog_names, budgeted, spent), key=lambda x: x[1], reverse=True)
+        if len(sorted_data) > 8:
+            sorted_data = sorted_data[:8]
+            prog_names = [x[0] for x in sorted_data] + ["Others"]
+            others_budget = sum(x[1] for x in sorted_data[8:])
+            others_spent = sum(x[2] for x in sorted_data[8:])
+            budgeted = [x[1] for x in sorted_data[:8]] + [others_budget]
+            spent = [x[2] for x in sorted_data[:8]] + [others_spent]
+        
+        x = np.arange(len(prog_names))
+        width = 0.35
+        
+        # Create stacked bars with budget as base
+        p1 = ax.bar(x, budgeted, width, color='#28a745', label='Budgeted', edgecolor='white')
+        p2 = ax.bar(x, spent, width, color='#dc3545', label='Spent', edgecolor='white',
+                   bottom=[0]*len(budgeted))  # Not actually stacking, just overlapping
+        
+        # Add utilization percentages
+        for i, (b, s) in enumerate(zip(budgeted, spent)):
+            if b > 0:
+                utilization = s / b * 100
+                ax.text(x[i], max(b, s) * 1.05, f'{utilization:.0f}%',
+                       ha='center', va='bottom', fontsize=9,
+                       bbox=dict(facecolor='white', edgecolor='#dee2e6', boxstyle='round,pad=0.2'))
+        
+        # Styling
+        ax.set_xticks(x)
+        ax.set_xticklabels(prog_names, rotation=45, ha='right')
+        ax.yaxis.grid(True, linestyle='--', alpha=0.4)
+        ax.set_axisbelow(True)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_title("Budget vs Actual Spending", pad=15, fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right')
+        
+        fig.tight_layout()
+        self.program_performance_chart.draw()
+
+    def create_card(self, title, color):
+        """Create a modern card container with shadow"""
+        card = QGroupBox(title)
+        card.setStyleSheet(f"""
+            QGroupBox {{
+                font-size: 16px;
+                font-weight: bold;
+                color: {color};
+                border: 1px solid #dee2e6;
+                border-radius: 12px;
+                background: white;
+                margin-top: 10px;
+                padding-top: 20px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 16px;
+                padding: 0 8px;
+            }}
+        """)
+        
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(15)
+        shadow.setXOffset(0)
+        shadow.setYOffset(3)
+        shadow.setColor(QColor(0, 0, 0, 30))
+        card.setGraphicsEffect(shadow)
+        
+        return card
     
     def get_scrollbar_styles(self):
         """Return modern scrollbar styles"""
@@ -4126,334 +4706,72 @@ class DashboardPage(QWidget):
         stats_container = QWidget()
         stats_layout = QHBoxLayout(stats_container)
         stats_layout.setSpacing(15)
-        
-        def quick_stat(value, label, color):
-            stat = QWidget()
-            stat_layout = QVBoxLayout(stat)
-            stat_layout.setSpacing(2)
-            
-            value_label = QLabel(str(value))
-            value_label.setStyleSheet(f"""
-                font-size: 18px;
-                font-weight: bold;
-                color: {color};
-            """)
-            value_label.setAlignment(Qt.AlignRight)
-            
-            label_label = QLabel(label)
-            label_label.setStyleSheet("""
-                font-size: 12px;
-                color: #6c757d;
-            """)
-            label_label.setAlignment(Qt.AlignRight)
-            
-            stat_layout.addWidget(value_label)
-            stat_layout.addWidget(label_label)
-            return stat
-        
-        # Placeholder stats - will be updated in load_data()
-        self.total_funds_stat = quick_stat("0", "Total Funds", "#007bff")
-        self.total_expenses_stat = quick_stat("0", "Expenses", "#dc3545")
-        self.budget_utilization_stat = quick_stat("0%", "Utilization", "#28a745")
-        
+
+        # Add quick stats labels
+        self.total_funds_stat = QWidget()
+        funds_layout = QVBoxLayout(self.total_funds_stat)
+        funds_label = QLabel("Total Funds")
+        funds_label.setStyleSheet("font-size: 12px; color: #6c757d;")
+        funds_value = QLabel("0")
+        funds_value.setStyleSheet("font-size: 18px; font-weight: bold; color: #007bff;")
+        funds_layout.addWidget(funds_value)
+        funds_layout.addWidget(funds_label)
         stats_layout.addWidget(self.total_funds_stat)
-        stats_layout.addWidget(QLabel("|"))
+
+        self.total_expenses_stat = QWidget()
+        expenses_layout = QVBoxLayout(self.total_expenses_stat)
+        expenses_label = QLabel("Total Expenses")
+        expenses_label.setStyleSheet("font-size: 12px; color: #6c757d;")
+        expenses_value = QLabel("0")
+        expenses_value.setStyleSheet("font-size: 18px; font-weight: bold; color: #dc3545;")
+        expenses_layout.addWidget(expenses_value)
+        expenses_layout.addWidget(expenses_label)
         stats_layout.addWidget(self.total_expenses_stat)
-        stats_layout.addWidget(QLabel("|"))
+
+        self.budget_utilization_stat = QWidget()
+        utilization_layout = QVBoxLayout(self.budget_utilization_stat)
+        utilization_label = QLabel("Budget Utilization")
+        utilization_label.setStyleSheet("font-size: 12px; color: #6c757d;")
+        utilization_value = QLabel("0%")
+        utilization_value.setStyleSheet("font-size: 18px; font-weight: bold; color: #28a745;")
+        utilization_layout.addWidget(utilization_value)
+        utilization_layout.addWidget(utilization_label)
         stats_layout.addWidget(self.budget_utilization_stat)
-        
-        header_layout.addWidget(title_container)
+
+        stats_container.setLayout(stats_layout)
+        header_layout.addWidget(title_container, alignment=Qt.AlignLeft)
         header_layout.addStretch()
-        header_layout.addWidget(stats_container)
-        
+        header_layout.addWidget(stats_container, alignment=Qt.AlignRight)
+
+        header.setLayout(header_layout)
         self.main_layout.addWidget(header)
-    
-    def setup_fund_card(self):
-        """Fund Overview card with charts"""
-        card = self.create_card("Fund Overview", "#007bff")
-        layout = QVBoxLayout(card)
-        layout.setSpacing(15)
-        
-        # Stats row
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(15)
-        
-        def stat_box(value, label, color, icon=None):
-            widget = QWidget()
-            widget.setStyleSheet("""
-                background: white;
-                border-radius: 8px;
-                padding: 10px;
-            """)
-            box_layout = QVBoxLayout(widget)
-            box_layout.setSpacing(5)
-            
-            if icon:
-                icon_label = QLabel()
-                icon_label.setPixmap(QPixmap(icon).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                icon_label.setAlignment(Qt.AlignRight)
-                box_layout.addWidget(icon_label)
-            
-            value_label = QLabel(str(value))
-            value_label.setStyleSheet(f"""
-                font-size: 18px;
-                font-weight: bold;
-                color: {color};
-            """)
-            
-            label_label = QLabel(label)
-            label_label.setStyleSheet("""
-                font-size: 12px;
-                color: #6c757d;
-            """)
-            
-            box_layout.addWidget(value_label)
-            box_layout.addWidget(label_label)
-            return widget
-        
-        # Placeholder stats - will be updated in load_data()
-        self.fund_received_stat = stat_box("0", "Received", "#007bff", "Icons/funds.svg")
-        self.fund_allocated_stat = stat_box("0", "Allocated", "#28a745", "Icons/budget.svg")
-        self.fund_available_stat = stat_box("0", "Available", "#dc3545", "Icons/wallet.svg")
-        
-        stats_row.addWidget(self.fund_received_stat)
-        stats_row.addWidget(self.fund_allocated_stat)
-        stats_row.addWidget(self.fund_available_stat)
-        layout.addLayout(stats_row)
-        
-        # Charts container
-        charts_container = QWidget()
-        charts_layout = QHBoxLayout(charts_container)
-        charts_layout.setContentsMargins(0, 0, 0, 0)
-        charts_layout.setSpacing(15)
-        
-        # Funds flow chart
-        self.funds_flow_chart = FigureCanvas(Figure(figsize=(5, 3)))
-        self.funds_flow_chart.setStyleSheet("background: transparent;")
-        self.funds_flow_chart.setMinimumHeight(250)
-        
-        # Funds type chart
-        self.funds_type_chart = FigureCanvas(Figure(figsize=(3, 3)))
-        self.funds_type_chart.setStyleSheet("background: transparent;")
-        self.funds_type_chart.setMinimumHeight(250)
-        
-        charts_layout.addWidget(self.funds_flow_chart, 2)
-        charts_layout.addWidget(self.funds_type_chart, 1)
-        layout.addWidget(charts_container)
-        
-        self.cards_grid.addWidget(card, 0, 0, 1, 2)  # Span 2 columns
-    
-    def setup_budget_card(self):
-        """Budget Summary card with utilization meter"""
-        card = self.create_card("Budget Summary", "#28a745")
-        layout = QVBoxLayout(card)
-        layout.setSpacing(15)
-        
-        # Utilization meter
-        meter_container = QWidget()
-        meter_layout = QVBoxLayout(meter_container)
-        meter_layout.setSpacing(5)
-        
-        meter_header = QHBoxLayout()
-        meter_header.addWidget(QLabel("Budget Utilization"))
-        meter_header.addStretch()
-        self.utilization_value = QLabel("0%")
-        self.utilization_value.setStyleSheet("font-weight: bold; color: #28a745;")
-        meter_header.addWidget(self.utilization_value)
-        meter_layout.addLayout(meter_header)
-        
-        self.utilization_meter = QProgressBar()
-        self.utilization_meter.setRange(0, 100)
-        self.utilization_meter.setTextVisible(False)
-        self.utilization_meter.setStyleSheet("""
-            QProgressBar {
-                height: 12px;
-                background: #e9ecef;
-                border-radius: 6px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #28a745, stop:1 #5cb85c);
-                border-radius: 6px;
-            }
-        """)
-        meter_layout.addWidget(self.utilization_meter)
-        layout.addWidget(meter_container)
-        
-        # Budget by program chart
-        self.budget_program_chart = FigureCanvas(Figure(figsize=(5, 3)))
-        self.budget_program_chart.setStyleSheet("background: transparent;")
-        self.budget_program_chart.setMinimumHeight(250)
-        layout.addWidget(self.budget_program_chart)
-        
-        self.cards_grid.addWidget(card, 1, 0)
-    
-    def setup_transaction_card(self):
-        """Transaction Summary card with recent transactions"""
-        card = self.create_card("Transactions", "#17a2b8")
-        layout = QVBoxLayout(card)
-        layout.setSpacing(15)
-        
-        # Transaction type breakdown
-        type_container = QWidget()
-        type_layout = QHBoxLayout(type_container)
-        type_layout.setContentsMargins(0, 0, 0, 0)
-        
-        def type_indicator(color, label):
-            widget = QWidget()
-            widget_layout = QHBoxLayout(widget)
-            widget_layout.setSpacing(5)
-            
-            dot = QLabel()
-            dot.setFixedSize(12, 12)
-            dot.setStyleSheet(f"""
-                background: {color};
-                border-radius: 6px;
-            """)
-            
-            label = QLabel(label)
-            label.setStyleSheet("font-size: 12px; color: #495057;")
-            
-            widget_layout.addWidget(dot)
-            widget_layout.addWidget(label)
-            widget_layout.addStretch()
-            return widget
-        
-        # Placeholder indicators - will be updated in load_data()
-        self.funds_indicator = type_indicator("#007bff", "Funds: $0")
-        self.expenses_indicator = type_indicator("#dc3545", "Expenses: $0")
-        
-        type_layout.addWidget(self.funds_indicator)
-        type_layout.addWidget(self.expenses_indicator)
-        type_layout.addStretch()
-        layout.addWidget(type_container)
-        
-        # Recent transactions table
-        self.transaction_table = QTableWidget()
-        self.transaction_table.setColumnCount(4)
-        self.transaction_table.setHorizontalHeaderLabels(["Date", "Type", "Amount", "Reference"])
-        self.transaction_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.transaction_table.verticalHeader().setVisible(False)
-        self.transaction_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.transaction_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.transaction_table.setStyleSheet("""
-            QTableWidget {
-                background: white;
-                border-radius: 8px;
-                border: 1px solid #dee2e6;
-                font-size: 12px;
-            }
-            QTableWidget::item {
-                padding: 5px;
-            }
-            QHeaderView::section {
-                background: #f8f9fa;
-                padding: 5px;
-                border: none;
-            }
-        """)
-        self.transaction_table.setMinimumHeight(200)
-        layout.addWidget(self.transaction_table)
-        
-        self.cards_grid.addWidget(card, 1, 1)
-    
-    def setup_projects_card(self):
-        """Projects Insights card with program performance"""
-        card = self.create_card("Programs & Projects", "#6f42c1")
-        layout = QVBoxLayout(card)
-        layout.setSpacing(15)
-        
-        # Stats row
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(15)
-        
-        def mini_stat(value, label, color):
-            widget = QWidget()
-            widget_layout = QVBoxLayout(widget)
-            widget_layout.setSpacing(2)
-            
-            value_label = QLabel(str(value))
-            value_label.setStyleSheet(f"""
-                font-size: 16px;
-                font-weight: bold;
-                color: {color};
-            """)
-            value_label.setAlignment(Qt.AlignCenter)
-            
-            label_label = QLabel(label)
-            label_label.setStyleSheet("""
-                font-size: 11px;
-                color: #6c757d;
-            """)
-            label_label.setAlignment(Qt.AlignCenter)
-            
-            widget_layout.addWidget(value_label)
-            widget_layout.addWidget(label_label)
-            return widget
-        
-        # Placeholder stats - will be updated in load_data()
-        self.programs_stat = mini_stat("0", "Programs", "#6f42c1")
-        self.projects_stat = mini_stat("0", "Projects", "#17a2b8")
-        self.top_project_stat = mini_stat("-", "Top Project", "#dc3545")
-        
-        stats_row.addWidget(self.programs_stat)
-        stats_row.addWidget(self.projects_stat)
-        stats_row.addWidget(self.top_project_stat)
-        layout.addLayout(stats_row)
-        
-        # Program performance chart
-        self.program_performance_chart = FigureCanvas(Figure(figsize=(5, 3)))
-        self.program_performance_chart.setStyleSheet("background: transparent;")
-        self.program_performance_chart.setMinimumHeight(250)
-        layout.addWidget(self.program_performance_chart)
-        
-        self.cards_grid.addWidget(card, 2, 0, 1, 2)  # Span 2 columns
-    
-    def create_card(self, title, color):
-        """Create a styled card container"""
-        card = QGroupBox(title)
-        card.setStyleSheet(f"""
-            QGroupBox {{
-                font-size: 16px;
-                font-weight: bold;
-                color: {color};
-                border: 1px solid #dee2e6;
-                border-radius: 12px;
-                background: white;
-                margin-top: 10px;
-                padding-top: 20px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 5px;
-            }}
-        """)
-        return card
-    
+
     def load_data(self):
         """Load and display all dashboard data"""
+        conn = None
         try:
             year = str(datetime.now().year)
             conn = get_db_connection()
-            
-            # Fund data
             cur = conn.cursor()
+
+            # Fund data
             cur.execute("""
                 SELECT IFNULL(SUM(t.Amount),0) as total
                 FROM FundTransactions ft
                 JOIN Transactions t ON ft.Transaction_id = t.TransactionID
                 WHERE t.BudgetYear LIKE ?
             """, (f"{year}%",))
-            total_funds = cur.fetchone()["total"]
-            
+            row = cur.fetchone()
+            total_funds = row["total"] if row and "total" in row.keys() else 0
+
             cur.execute("""
                 SELECT IFNULL(SUM(BudgetAmount),0) as total
                 FROM Budget
                 WHERE BudgetYear LIKE ?
             """, (f"{year}%",))
-            total_budget = cur.fetchone()["total"]
-            
+            row = cur.fetchone()
+            total_budget = row["total"] if row and "total" in row.keys() else 0
+
             cur.execute("""
                 SELECT FundType, IFNULL(SUM(t.Amount),0) as total
                 FROM Fund f
@@ -4462,23 +4780,28 @@ class DashboardPage(QWidget):
                 WHERE f.BudgetYear LIKE ?
                 GROUP BY FundType
             """, (f"{year}%",))
-            fund_types = {row["FundType"]: row["total"] for row in cur.fetchall()}
-            
+            fund_types = {}
+            for row in cur.fetchall():
+                fund_types[row["FundType"]] = row["total"]
+
             # Budget data
             cur.execute("""
                 SELECT IFNULL(SUM(Amount),0) as total
                 FROM Transactions
                 WHERE TransactionType='Expense' AND BudgetYear LIKE ?
             """, (f"{year}%",))
-            total_expense = cur.fetchone()["total"]
-            
+            row = cur.fetchone()
+            total_expense = row["total"] if row and "total" in row.keys() else 0
+
             # Program data
             cur.execute("SELECT COUNT(*) as cnt FROM Program_administrations")
-            prog_count = cur.fetchone()["cnt"]
-            
+            row = cur.fetchone()
+            prog_count = row["cnt"] if row and "cnt" in row.keys() else 0
+
             cur.execute("SELECT COUNT(*) as cnt FROM Projects")
-            proj_count = cur.fetchone()["cnt"]
-            
+            row = cur.fetchone()
+            proj_count = row["cnt"] if row and "cnt" in row.keys() else 0
+
             cur.execute("""
                 SELECT pa.PA_Name, IFNULL(SUM(t.Amount),0) as total
                 FROM Transactions t
@@ -4488,7 +4811,7 @@ class DashboardPage(QWidget):
                 ORDER BY total DESC LIMIT 1
             """, (f"{year}%",))
             top_proj = cur.fetchone()
-            
+
             # Transaction data
             cur.execute("""
                 SELECT TransactionType, IFNULL(SUM(Amount),0) as total
@@ -4497,7 +4820,7 @@ class DashboardPage(QWidget):
                 GROUP BY TransactionType
             """, (f"{year}%",))
             tx_types = cur.fetchall()
-            
+
             cur.execute("""
                 SELECT TransactionDate, TransactionType, Amount, Reference
                 FROM Transactions
@@ -4506,7 +4829,7 @@ class DashboardPage(QWidget):
                 LIMIT 5
             """, (f"{year}%",))
             recent_tx = cur.fetchall()
-            
+
             # Budget by program
             cur.execute("""
                 SELECT pa.PA_Name, IFNULL(SUM(b.BudgetAmount),0) as budgeted
@@ -4516,7 +4839,7 @@ class DashboardPage(QWidget):
                 GROUP BY pa.PA_Name
             """, (f"{year}%",))
             prog_budgets = cur.fetchall()
-            
+
             # Program performance
             cur.execute("""
                 SELECT pa.PA_Name,
@@ -4528,110 +4851,28 @@ class DashboardPage(QWidget):
                 GROUP BY pa.PA_Name
             """, (f"{year}%", f"{year}%"))
             prog_performance = cur.fetchall()
-            
         finally:
-            conn.close()
-        
+            if conn is not None:
+                conn.close()
+
         # Update UI with data
         self.update_fund_card(total_funds, total_budget, fund_types)
         self.update_budget_card(total_budget, total_expense, prog_budgets)
         self.update_transaction_card(tx_types, recent_tx)
         self.update_projects_card(prog_count, proj_count, top_proj, prog_performance)
-        
+
         # Update header stats
-        self.total_funds_stat.findChild(QLabel).setText(f"${total_funds:,.2f}")
-        self.total_expenses_stat.findChild(QLabel).setText(f"${total_expense:,.2f}")
+        # Use findChildren(QLabel) and update the second QLabel (the value label)
+        fund_labels = self.total_funds_stat.findChildren(QLabel)
+        if len(fund_labels) > 0:
+            fund_labels[0].setText(f"{total_funds:,.2f}")
+        expense_labels = self.total_expenses_stat.findChildren(QLabel)
+        if len(expense_labels) > 0:
+            expense_labels[0].setText(f"{total_expense:,.2f}")
         utilization = (total_expense / total_budget * 100) if total_budget else 0
-        self.budget_utilization_stat.findChild(QLabel).setText(f"{utilization:.1f}%")
-    
-    def update_fund_card(self, total_funds, total_budget, fund_types):
-        """Update the fund overview card with data"""
-        available = total_funds - total_budget
-        restricted = fund_types.get("Restricted", 0)
-        unrestricted = fund_types.get("Unrestricted", 0)
-        
-        # Update stats
-        self.fund_received_stat.findChild(QLabel).setText(f"${total_funds:,.2f}")
-        self.fund_allocated_stat.findChild(QLabel).setText(f"${total_budget:,.2f}")
-        self.fund_available_stat.findChild(QLabel).setText(f"${available:,.2f}")
-        
-        # Update funds flow chart
-        fig1 = self.funds_flow_chart.figure
-        fig1.clear()
-        ax1 = fig1.add_subplot(111)
-        
-        labels = ["Received", "Allocated", "Available"]
-        values = [total_funds, total_budget, available]
-        colors = ["#007bff", "#28a745", "#dc3545"]
-        
-        bars = ax1.bar(labels, values, color=colors)
-        ax1.set_title("Funds Flow Overview", fontsize=12)
-        
-        for bar in bars:
-            height = bar.get_height()
-            ax1.annotate(f'${height:,.0f}',
-                        xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 3),
-                        textcoords="offset points",
-                        ha='center', va='bottom', fontsize=9)
-        
-        fig1.tight_layout()
-        self.funds_flow_chart.draw()
-        
-        # Update funds type chart
-        fig2 = self.funds_type_chart.figure
-        fig2.clear()
-        ax2 = fig2.add_subplot(111)
-        
-        labels = ["Restricted", "Unrestricted"]
-        values = [restricted, unrestricted]
-        colors = ["#6f42c1", "#17a2b8"]
-        
-        wedges, texts, autotexts = ax2.pie(
-            values,
-            labels=labels,
-            autopct='%1.1f%%',
-            colors=colors,
-            startangle=90,
-            textprops={'color': "white", 'fontsize': 10}
-        )
-        ax2.set_title("Funds by Type", fontsize=12)
-        fig2.tight_layout()
-        self.funds_type_chart.draw()
-    
-    def update_budget_card(self, total_budget, total_expense, prog_budgets):
-        """Update the budget summary card with data"""
-        # Update utilization meter
-        utilization = (total_expense / total_budget * 100) if total_budget else 0
-        self.utilization_meter.setValue(int(utilization))
-        self.utilization_value.setText(f"{utilization:.1f}%")
-        
-        # Update program budget chart
-        fig = self.budget_program_chart.figure
-        fig.clear()
-        ax = fig.add_subplot(111)
-        
-        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_budgets]
-        budget_values = [row["budgeted"] for row in prog_budgets]
-        
-        # Sort by budget amount (descending)
-        sorted_data = sorted(zip(prog_names, budget_values), key=lambda x: x[1], reverse=True)
-        prog_names = [x[0] for x in sorted_data]
-        budget_values = [x[1] for x in sorted_data]
-        
-        bars = ax.barh(prog_names, budget_values, color="#17a2b8")
-        ax.set_title("Budget by Program", fontsize=12)
-        
-        for bar in bars:
-            width = bar.get_width()
-            ax.annotate(f'${width:,.0f}',
-                       xy=(width, bar.get_y() + bar.get_height() / 2),
-                       xytext=(3, 0),
-                       textcoords="offset points",
-                       ha='left', va='center', fontsize=9)
-        
-        fig.tight_layout()
-        self.budget_program_chart.draw()
+        utilization_labels = self.budget_utilization_stat.findChildren(QLabel)
+        if len(utilization_labels) > 0:
+            utilization_labels[0].setText(f"{utilization:.1f}%")
     
     def update_transaction_card(self, tx_types, recent_tx):
         """Update the transaction summary card with data"""
@@ -4639,8 +4880,8 @@ class DashboardPage(QWidget):
         funds = next((row["total"] for row in tx_types if row["TransactionType"] == "Funds"), 0)
         expenses = next((row["total"] for row in tx_types if row["TransactionType"] == "Expense"), 0)
         
-        self.funds_indicator.findChild(QLabel).setText(f"Funds: ${funds:,.2f}")
-        self.expenses_indicator.findChild(QLabel).setText(f"Expenses: ${expenses:,.2f}")
+        self.funds_indicator.findChild(QLabel).setText(f"Funds: {funds:,.2f}")
+        self.expenses_indicator.findChild(QLabel).setText(f"Expenses: {expenses:,.2f}")
         
         # Update recent transactions table
         self.transaction_table.setRowCount(len(recent_tx))
@@ -4655,7 +4896,7 @@ class DashboardPage(QWidget):
             self.transaction_table.setItem(i, 1, type_item)
             
             amount = row["Amount"]
-            amount_item = QTableWidgetItem(f"${abs(amount):,.2f}")
+            amount_item = QTableWidgetItem(f"{abs(amount):,.2f}")
             amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             if row["TransactionType"] == "Funds":
                 amount_item.setForeground(QColor("#28a745"))
@@ -4664,52 +4905,6 @@ class DashboardPage(QWidget):
             self.transaction_table.setItem(i, 2, amount_item)
             
             self.transaction_table.setItem(i, 3, QTableWidgetItem(row["Reference"] or ""))
-    
-    def update_projects_card(self, prog_count, proj_count, top_proj, prog_performance):
-        """Update the projects insights card with data"""
-        # Update stats
-        self.programs_stat.findChild(QLabel).setText(str(prog_count))
-        self.projects_stat.findChild(QLabel).setText(str(proj_count))
-        
-        if top_proj:
-            self.top_project_stat.findChild(QLabel).setText(top_proj["PA_Name"] or "N/A")
-            self.top_project_stat.findChild(QLabel).setText(f"${top_proj['total']:,.2f}")
-       
-        # Update program performance chart
-        fig = self.program_performance_chart.figure
-        fig.clear()
-        ax = fig.add_subplot(111)
-        
-        prog_names = [row["PA_Name"] or "Unassigned" for row in prog_performance]
-        budgeted = [row["budgeted"] for row in prog_performance]
-        spent = [abs(row["spent"]) for row in prog_performance]  # Make spent positive
-        
-        # Sort by budgeted amount (descending)
-        sorted_data = sorted(zip(prog_names, budgeted, spent), key=lambda x: x[1], reverse=True)
-        prog_names = [x[0] for x in sorted_data]
-        budgeted = [x[1] for x in sorted_data]
-        spent = [x[2] for x in sorted_data]
-        
-        x = np.arange(len(prog_names))
-        width = 0.35
-        
-        bars1 = ax.bar(x - width/2, budgeted, width, label="Budgeted", color="#28a745")
-        bars2 = ax.bar(x + width/2, spent, width, label="Spent", color="#dc3545")
-        
-        ax.set_xticks(x)
-        ax.set_xticklabels(prog_names, rotation=45, ha='right')
-        ax.set_title("Program Performance", fontsize=12)
-        ax.legend()
-        
-        # Add percentage labels
-        for i, (b, s) in enumerate(zip(budgeted, spent)):
-            if b > 0:
-                pct = (s / b * 100)
-                ax.text(i, max(b, s) * 1.05, f"{pct:.1f}%", 
-                       ha='center', va='bottom', fontsize=9, color="#6c757d")
-        
-        fig.tight_layout()
-        self.program_performance_chart.draw()
 
 class ReportPage(QWidget):
     def __init__(self):
@@ -4739,7 +4934,7 @@ class ReportPage(QWidget):
         self.setup_section1()  # Funds & Expenses Overview
         self.setup_section2()  # Expenses vs Budget
         self.setup_section3()  # Transaction Summary
-        self.setup_section4()  # Additional Insights (optional)
+        # self.setup_section4()  # Additional Insights (optional)
 
         self.main_layout.addStretch(1)
         self.scroll.setWidget(self.content)
@@ -4812,7 +5007,7 @@ class ReportPage(QWidget):
         self.generate_btn = button("Generate", "primary", "md", 
                                   icon_path="Icons/print.svg", 
                                   icon_toolTip="Generate Report")
-
+        self.generate_btn.clicked.connect(self.export_report_to_pdf)
         # Add widgets with proper spacing
         header_layout.addWidget(QLabel("Year:"))
         header_layout.addWidget(self.year_filter)
@@ -4881,13 +5076,6 @@ class ReportPage(QWidget):
         s3_layout.addWidget(self.subcat_table)
         self.main_layout.addWidget(self.section3)
 
-    def setup_section4(self):
-        """Optional section for future expansion"""
-        self.section4 = QGroupBox("Additional Insights")
-        self.section4.setStyleSheet(self.get_section_style("#6f42c1"))
-        s4_layout = QVBoxLayout(self.section4)
-        s4_layout.addWidget(QLabel("Customize this section for more insights..."))
-        self.main_layout.addWidget(self.section4)
 
     def get_section_style(self, border_color):
         """Return consistent section styling"""
@@ -5026,7 +5214,7 @@ class ReportPage(QWidget):
         
         ax.set_xticks(x)
         ax.set_xticklabels(months_labels)
-        ax.set_ylabel("Amount ($)")
+        ax.set_ylabel("Amount ()")
         ax.set_title("Monthly Funds & Expenses")
         ax.legend()
         fig1.tight_layout()
@@ -5043,7 +5231,7 @@ class ReportPage(QWidget):
         
         # Use horizontal bar for better readability
         ax2.barh(fund_names, unused_vals, color="#28a745")
-        ax2.set_xlabel("Unused Amount ($)")
+        ax2.set_xlabel("Unused Amount ()")
         ax2.set_title("Unused Funds by Source")
         fig2.tight_layout()
         self.unused_funds_chart.draw()
@@ -5066,7 +5254,7 @@ class ReportPage(QWidget):
         
         ax3.set_xticks(x)
         ax3.set_xticklabels(proj_names, rotation=45, ha='right')
-        ax3.set_ylabel("Amount ($)")
+        ax3.set_ylabel("Amount ()")
         ax3.set_title("Project Budget vs Actual Spending")
         
         # Add percentage labels
@@ -5095,812 +5283,453 @@ class ReportPage(QWidget):
             expenses_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.subcat_table.setItem(i, 2, expenses_item)
 
-#security
-class UserManager:
-    def __init__(self):
-        self.conn = sqlite3.connect('Database/database.db')
-        self.conn.row_factory = sqlite3.Row
-    
-    def __del__(self):
-        self.conn.close()
-    
-    def create_user(self, username, password, email=None, full_name=None, is_admin=False):
-        """Create a new user with hashed password"""
-        if self.get_user_by_username(username):
-            raise ValueError("Username already exists")
-        
-        password_hash, salt = hash_password(password)
-        
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO users (username, password_hash, salt, email, full_name, is_admin)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (username, password_hash, salt, email, full_name, int(is_admin)))
-        
-        user_id = cursor.lastrowid
-        
-        # Add to password history
-        cursor.execute('''
-            INSERT INTO password_history (user_id, password_hash, salt)
-            VALUES (?, ?, ?)
-        ''', (user_id, password_hash, salt))
-        
-        # Audit log
-        self.log_action(user_id, "USER_CREATED", f"User {username} created")
-        
-        self.conn.commit()
-        return user_id
-    
-    def authenticate_user(self, username, password):
-        """Authenticate a user with username and password"""
-        user = self.get_user_by_username(username)
-        if not user or not user['is_active']:
-            return None
-        
-        # Check if account is locked
-        if user['account_locked_until']:
-            locked_until = datetime.datetime.strptime(user['account_locked_until'], '%Y-%m-%d %H:%M:%S')
-            if datetime.datetime.now() < locked_until:
-                remaining = (locked_until - datetime.datetime.now()).seconds // 60
-                raise AccountLockedException(f"Account locked. Try again in {remaining} minutes.")
-        
-        # Verify password
-        password_hash, _ = hash_password(password, user['salt'])
-        if password_hash == user['password_hash']:
-            # Reset failed attempts on successful login
-            self.reset_failed_login_attempts(user['id'])
-            
-            # Update last login
-            self.update_last_login(user['id'])
-            
-            return user
-        else:
-            # Increment failed login attempts
-            self.increment_failed_login_attempts(user['id'])
-            return None
-    
-    def reset_password(self, username, new_password):
-        """Reset a user's password"""
-        user = self.get_user_by_username(username)
-        if not user:
-            raise ValueError("User not found")
-        
-        # Check if new password is different from current
-        new_hash, _ = hash_password(new_password, user['salt'])
-        if new_hash == user['password_hash']:
-            raise ValueError("New password must be different from current password")
-        
-        # Check against password history (optional)
-        
-        # Update password
-        new_hash, new_salt = hash_password(new_password)
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET password_hash = ?, salt = ?, 
-                password_reset_token = NULL, 
-                reset_token_expiry = NULL,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (new_hash, new_salt, user['id']))
-        
-        # Add to password history
-        cursor.execute('''
-            INSERT INTO password_history (user_id, password_hash, salt)
-            VALUES (?, ?, ?)
-        ''', (user['id'], new_hash, new_salt))
-        
-        # Audit log
-        self.log_action(user['id'], "PASSWORD_RESET", "Password reset")
-        
-        self.conn.commit()
-        return True
-    
-    def generate_password_reset_token(self, username):
-        """Generate a password reset token"""
-        user = self.get_user_by_username(username)
-        if not user:
-            raise ValueError("User not found")
-        
-        token = binascii.hexlify(os.urandom(32)).decode('utf-8')
-        expiry = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET password_reset_token = ?, 
-                reset_token_expiry = ?
-            WHERE id = ?
-        ''', (token, expiry, user['id']))
-        
-        self.conn.commit()
-        return token
-    
-    def validate_reset_token(self, username, token):
-        """Validate a password reset token"""
-        user = self.get_user_by_username(username)
-        if not user:
-            return False
-        
-        if not user['password_reset_token'] or not user['reset_token_expiry']:
-            return False
-        
-        if user['password_reset_token'] != token:
-            return False
-        
-        expiry = datetime.datetime.strptime(user['reset_token_expiry'], '%Y-%m-%d %H:%M:%S')
-        if datetime.datetime.now() > expiry:
-            return False
-        
-        return True
-    
-    def update_user(self, user_id, email=None, full_name=None, is_active=None):
-        """Update user information"""
-        updates = []
-        params = []
-        
-        if email is not None:
-            updates.append("email = ?")
-            params.append(email)
-        if full_name is not None:
-            updates.append("full_name = ?")
-            params.append(full_name)
-        if is_active is not None:
-            updates.append("is_active = ?")
-            params.append(int(is_active))
-        
-        if not updates:
-            return False
-        
-        params.append(user_id)
-        query = f"UPDATE users SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-        
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
-        
-        # Audit log
-        self.log_action(user_id, "USER_UPDATED", "User information updated")
-        
-        self.conn.commit()
-        return cursor.rowcount > 0
-    
-    def get_user_by_username(self, username):
-        """Get user by username"""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
-        return cursor.fetchone()
-    
-    def get_user_by_id(self, user_id):
-        """Get user by ID"""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
-        return cursor.fetchone()
-    
-    def increment_failed_login_attempts(self, user_id):
-        """Increment failed login attempts and lock account if threshold reached"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET failed_login_attempts = failed_login_attempts + 1,
-                account_locked_until = CASE 
-                    WHEN failed_login_attempts + 1 >= 5 THEN datetime('now', '+30 minutes')
-                    ELSE NULL
-                END
-            WHERE id = ?
-        ''', (user_id,))
-        
-        user = self.get_user_by_id(user_id)
-        if user['failed_login_attempts'] >= 5:
-            self.log_action(user_id, "ACCOUNT_LOCKED", "Account locked due to too many failed attempts")
-        
-        self.conn.commit()
-    
-    def reset_failed_login_attempts(self, user_id):
-        """Reset failed login attempts"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET failed_login_attempts = 0,
-                account_locked_until = NULL
-            WHERE id = ?
-        ''', (user_id,))
-        self.conn.commit()
-    
-    def update_last_login(self, user_id):
-        """Update last login timestamp"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET last_login = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (user_id,))
-        self.conn.commit()
-    
-    def log_action(self, user_id, action, description, ip_address=None, user_agent=None):
-        """Log an action to the audit log"""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO audit_log (user_id, action, description, ip_address, user_agent)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, action, description, ip_address, user_agent))
-        self.conn.commit()
+    def export_report_to_pdf(self):
+        """
+        Export the current report data to a well-formatted PDF file, including charts as images.
+        Uses reportlab for PDF generation.
+        """
 
-class AccountLockedException(Exception):
-    pass            
+        # Ask user for file path
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Report to PDF", "", "PDF Files (*.pdf)"
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".pdf"):
+            file_path += ".pdf"
 
-class UserManagementPage(QWidget):
-    def __init__(self, current_user):
-        super().__init__()
-        self.current_user = current_user
-        self.user_manager = UserManager()
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup the user interface"""
-        self.setWindowTitle("User Management System")
-        self.resize(800, 600)
-        
-        # Main layout
-        layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
-        
+        # Gather data
+        year = self.year_filter.currentText()
+        month = self.month_filter.currentText()
+        date_filter = self.prepare_date_filter(year, month)
+        data = self.fetch_report_data(year, date_filter)
+
+        # Prepare PDF document
+        doc = SimpleDocTemplate(
+            file_path,
+            pagesize=landscape(A4),
+            rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
+        )
+        styles = getSampleStyleSheet()
+        style_title = styles['Title']
+        style_h2 = styles['Heading2']
+        style_h3 = styles['Heading3']
+        style_normal = styles['BodyText']
+        style_table_header = ParagraphStyle(
+            'table_header',
+            parent=styles['Normal'],
+            fontName='Helvetica-Bold',
+            fontSize=11,
+            textColor=colors.white,
+            alignment=1,
+            backColor=colors.HexColor("#007bff"),
+            spaceAfter=6,
+        )
+        style_table_cell = ParagraphStyle(
+            'table_cell',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=10,
+            textColor=colors.black,
+            alignment=1,
+        )
+
+        elements = []
+
         # Title
-        title = QLabel("User Management System")
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
-        layout.addWidget(title)
-        
-        # Tab widget for different sections
-        tabs = QTabWidget()
-        
-        # User List Tab
-        user_list_tab = QWidget()
-        self.setup_user_list_tab(user_list_tab)
-        tabs.addTab(user_list_tab, "User List")
-        
-        # Add User Tab
-        add_user_tab = QWidget()
-        self.setup_add_user_tab(add_user_tab)
-        tabs.addTab(add_user_tab, "Add User")
-        
-        # Edit Profile Tab
-        edit_profile_tab = QWidget()
-        self.setup_edit_profile_tab(edit_profile_tab)
-        tabs.addTab(edit_profile_tab, "My Profile")
-        
-        # Password Reset Tab
-        reset_password_tab = QWidget()
-        self.setup_reset_password_tab(reset_password_tab)
-        tabs.addTab(reset_password_tab, "Reset Password")
-        
-        layout.addWidget(tabs)
-        self.setLayout(layout)
-    
-    def setup_user_list_tab(self, tab):
-        """Setup the user list tab"""
-        layout = QVBoxLayout()
-        
-        # Table for displaying users
-        self.user_table = QTableWidget()
-        self.user_table.setColumnCount(5)
-        self.user_table.setHorizontalHeaderLabels(["ID", "Username", "Email", "Full Name", "Status"])
-        self.user_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.user_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.user_table.setSelectionMode(QTableWidget.SingleSelection)
-        
-        # Buttons for user actions
-        button_layout = QHBoxLayout()
-        self.refresh_btn = QPushButton("Refresh")
-        self.refresh_btn.clicked.connect(self.load_users)
-        self.edit_btn = QPushButton("Edit User")
-        self.edit_btn.clicked.connect(self.edit_selected_user)
-        self.toggle_status_btn = QPushButton("Toggle Status")
-        self.toggle_status_btn.clicked.connect(self.toggle_user_status)
-        self.reset_pw_btn = QPushButton("Reset Password")
-        self.reset_pw_btn.clicked.connect(self.reset_password_for_user)
-        
-        button_layout.addWidget(self.refresh_btn)
-        button_layout.addWidget(self.edit_btn)
-        button_layout.addWidget(self.toggle_status_btn)
-        button_layout.addWidget(self.reset_pw_btn)
-        
-        layout.addWidget(self.user_table)
-        layout.addLayout(button_layout)
-        
-        tab.setLayout(layout)
-        self.load_users()
-    
-    def setup_add_user_tab(self, tab):
-        """Setup the add user tab"""
-        layout = QFormLayout()
-        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        
-        # Form fields
-        self.new_username = QLineEdit()
-        self.new_password = QLineEdit()
-        self.new_password.setEchoMode(QLineEdit.Password)
-        self.confirm_password = QLineEdit()
-        self.confirm_password.setEchoMode(QLineEdit.Password)
-        self.new_email = QLineEdit()
-        self.new_full_name = QLineEdit()
-        self.new_is_admin = QCheckBox("Admin User")
-        
-        # Add to layout
-        layout.addRow("Username:", self.new_username)
-        layout.addRow("Password:", self.new_password)
-        layout.addRow("Confirm Password:", self.confirm_password)
-        layout.addRow("Email:", self.new_email)
-        layout.addRow("Full Name:", self.new_full_name)
-        layout.addRow(self.new_is_admin)
-        
-        # Submit button
-        self.add_user_btn = QPushButton("Add User")
-        self.add_user_btn.clicked.connect(self.add_new_user)
-        layout.addRow(self.add_user_btn)
-        
-        tab.setLayout(layout)
-    
-    def setup_edit_profile_tab(self, tab):
-        """Setup the edit profile tab"""
-        layout = QFormLayout()
-        
-        # Display current user info
-        self.current_username = QLabel(self.current_user['username'])
-        self.current_email = QLineEdit(self.current_user.get('email', ''))
-        self.current_full_name = QLineEdit(self.current_user.get('full_name', ''))
-        
-        # Make email and full name editable
-        layout.addRow("Username:", self.current_username)
-        layout.addRow("Email:", self.current_email)
-        layout.addRow("Full Name:", self.current_full_name)
-        
-        # Save button
-        self.save_profile_btn = QPushButton("Save Changes")
-        self.save_profile_btn.clicked.connect(self.save_profile_changes)
-        layout.addRow(self.save_profile_btn)
-        
-        tab.setLayout(layout)
-    
-    def setup_reset_password_tab(self, tab):
-        """Setup the password reset tab"""
-        layout = QFormLayout()
-        
-        # Current password
-        self.current_password = QLineEdit()
-        self.current_password.setEchoMode(QLineEdit.Password)
-        
-        # New password
-        self.new_password_reset = QLineEdit()
-        self.new_password_reset.setEchoMode(QLineEdit.Password)
-        
-        # Confirm new password
-        self.confirm_new_password = QLineEdit()
-        self.confirm_new_password.setEchoMode(QLineEdit.Password)
-        
-        # Add to layout
-        layout.addRow("Current Password:", self.current_password)
-        layout.addRow("New Password:", self.new_password_reset)
-        layout.addRow("Confirm New Password:", self.confirm_new_password)
-        
-        # Reset button
-        self.reset_password_btn = QPushButton("Change Password")
-        self.reset_password_btn.clicked.connect(self.change_password)
-        layout.addRow(self.reset_password_btn)
-        
-        # Forgot password section
-        forgot_group = QGroupBox("Forgot Password")
-        forgot_layout = QFormLayout()
-        
-        self.forgot_username = QLineEdit()
-        self.request_reset_btn = QPushButton("Request Reset Link")
-        self.request_reset_btn.clicked.connect(self.request_password_reset)
-        
-        forgot_layout.addRow("Username:", self.forgot_username)
-        forgot_layout.addRow(self.request_reset_btn)
-        forgot_group.setLayout(forgot_layout)
-        
-        layout.addRow(forgot_group)
-        tab.setLayout(layout)
-    
-    def load_users(self):
-        """Load all users into the table"""
-        cursor = self.user_manager.conn.cursor()
-        cursor.execute('SELECT id, username, email, full_name, is_active FROM users')
-        users = cursor.fetchall()
-        
-        self.user_table.setRowCount(len(users))
-        for row_idx, user in enumerate(users):
-            self.user_table.setItem(row_idx, 0, QTableWidgetItem(str(user['id'])))
-            self.user_table.setItem(row_idx, 1, QTableWidgetItem(user['username']))
-            self.user_table.setItem(row_idx, 2, QTableWidgetItem(user['email'] or ''))
-            self.user_table.setItem(row_idx, 3, QTableWidgetItem(user['full_name'] or ''))
-            
-            status = "Active" if user['is_active'] else "Inactive"
-            status_item = QTableWidgetItem(status)
-            status_item.setForeground(Qt.green if user['is_active'] else Qt.red)
-            self.user_table.setItem(row_idx, 4, status_item)
-    
-    def add_new_user(self):
-        """Add a new user to the system"""
-        username = self.new_username.text().strip()
-        password = self.new_password.text()
-        confirm_password = self.confirm_password.text()
-        email = self.new_email.text().strip()
-        full_name = self.new_full_name.text().strip()
-        is_admin = self.new_is_admin.isChecked()
-        
-        # Validate inputs
-        if not username:
-            QMessageBox.warning(self, "Error", "Username is required")
-            return
-        
-        if not password:
-            QMessageBox.warning(self, "Error", "Password is required")
-            return
-        
-        if password != confirm_password:
-            QMessageBox.warning(self, "Error", "Passwords do not match")
-            return
-        
-        try:
-            # Create the user
-            self.user_manager.create_user(
-                username=username,
-                password=password,
-                email=email if email else None,
-                full_name=full_name if full_name else None,
-                is_admin=is_admin
-            )
-            
-            # Clear the form
-            self.new_username.clear()
-            self.new_password.clear()
-            self.confirm_password.clear()
-            self.new_email.clear()
-            self.new_full_name.clear()
-            self.new_is_admin.setChecked(False)
-            
-            # Refresh user list
-            self.load_users()
-            
-            QMessageBox.information(self, "Success", "User created successfully")
-        except ValueError as e:
-            QMessageBox.warning(self, "Error", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create user: {str(e)}")
-    
-    def edit_selected_user(self):
-        """Edit the selected user"""
-        selected = self.user_table.selectedItems()
-        if not selected:
-            QMessageBox.warning(self, "Error", "Please select a user first")
-            return
-        
-        user_id = int(selected[0].text())
-        user = self.user_manager.get_user_by_id(user_id)
-        
-        if not user:
-            QMessageBox.warning(self, "Error", "User not found")
-            return
-        
-        # Create edit dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Edit User")
-        layout = QFormLayout()
-        
-        # Form fields
-        username = QLabel(user['username'])
-        email = QLineEdit(user.get('email', ''))
-        full_name = QLineEdit(user.get('full_name', ''))
-        is_active = QCheckBox("Active")
-        is_active.setChecked(bool(user['is_active']))
-        is_admin = QCheckBox("Admin")
-        is_admin.setChecked(bool(user['is_admin']))
-        
-        # Add to layout
-        layout.addRow("Username:", username)
-        layout.addRow("Email:", email)
-        layout.addRow("Full Name:", full_name)
-        layout.addRow(is_active)
-        layout.addRow(is_admin)
-        
-        # Buttons
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.accepted.connect(dialog.accept)
-        btn_box.rejected.connect(dialog.reject)
-        layout.addRow(btn_box)
-        
-        dialog.setLayout(layout)
-        
-        if dialog.exec_() == QDialog.Accepted:
-            try:
-                self.user_manager.update_user(
-                    user_id=user_id,
-                    email=email.text().strip() or None,
-                    full_name=full_name.text().strip() or None,
-                    is_active=is_active.isChecked()
-                )
-                
-                # For admin status, we might need a separate method if it requires special permissions
-                if self.current_user['is_admin']:
-                    cursor = self.user_manager.conn.cursor()
-                    cursor.execute('''
-                        UPDATE users 
-                        SET is_admin = ?,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    ''', (int(is_admin.isChecked()), user_id))
-                    self.user_manager.conn.commit()
-                
-                self.load_users()
-                QMessageBox.information(self, "Success", "User updated successfully")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to update user: {str(e)}")
-    
-    def toggle_user_status(self):
-        """Toggle the active status of the selected user"""
-        selected = self.user_table.selectedItems()
-        if not selected:
-            QMessageBox.warning(self, "Error", "Please select a user first")
-            return
-        
-        user_id = int(selected[0].text())
-        user = self.user_manager.get_user_by_id(user_id)
-        
-        if not user:
-            QMessageBox.warning(self, "Error", "User not found")
-            return
-        
-        new_status = not user['is_active']
-        
-        try:
-            self.user_manager.update_user(
-                user_id=user_id,
-                is_active=new_status
-            )
-            
-            self.load_users()
-            status = "activated" if new_status else "deactivated"
-            QMessageBox.information(self, "Success", f"User {status} successfully")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to toggle user status: {str(e)}")
-    
-    def reset_password_for_user(self):
-        """Reset password for the selected user"""
-        selected = self.user_table.selectedItems()
-        if not selected:
-            QMessageBox.warning(self, "Error", "Please select a user first")
-            return
-        
-        user_id = int(selected[0].text())
-        user = self.user_manager.get_user_by_id(user_id)
-        
-        if not user:
-            QMessageBox.warning(self, "Error", "User not found")
-            return
-        
-        # Create password reset dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Reset Password")
-        layout = QFormLayout()
-        
-        # Form fields
-        new_password = QLineEdit()
-        new_password.setEchoMode(QLineEdit.Password)
-        confirm_password = QLineEdit()
-        confirm_password.setEchoMode(QLineEdit.Password)
-        
-        # Add to layout
-        layout.addRow("New Password:", new_password)
-        layout.addRow("Confirm Password:", confirm_password)
-        
-        # Buttons
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.accepted.connect(dialog.accept)
-        btn_box.rejected.connect(dialog.reject)
-        layout.addRow(btn_box)
-        
-        dialog.setLayout(layout)
-        
-        if dialog.exec_() == QDialog.Accepted:
-            password = new_password.text()
-            confirm = confirm_password.text()
-            
-            if not password:
-                QMessageBox.warning(self, "Error", "Password cannot be empty")
-                return
-            
-            if password != confirm:
-                QMessageBox.warning(self, "Error", "Passwords do not match")
-                return
-            
-            try:
-                self.user_manager.reset_password(user['username'], password)
-                QMessageBox.information(self, "Success", "Password reset successfully")
-            except ValueError as e:
-                QMessageBox.warning(self, "Error", str(e))
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to reset password: {str(e)}")
-    
-    def save_profile_changes(self):
-        """Save changes to the current user's profile"""
-        email = self.current_email.text().strip()
-        full_name = self.current_full_name.text().strip()
-        
-        try:
-            self.user_manager.update_user(
-                user_id=self.current_user['id'],
-                email=email if email else None,
-                full_name=full_name if full_name else None
-            )
-            
-            # Update current user data
-            self.current_user = self.user_manager.get_user_by_id(self.current_user['id'])
-            
-            QMessageBox.information(self, "Success", "Profile updated successfully")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to update profile: {str(e)}")
-    
-    def change_password(self):
-        """Change the current user's password"""
-        current_password = self.current_password.text()
-        new_password = self.new_password_reset.text()
-        confirm_password = self.confirm_new_password.text()
-        
-        if not current_password:
-            QMessageBox.warning(self, "Error", "Current password is required")
-            return
-        
-        if not new_password:
-            QMessageBox.warning(self, "Error", "New password is required")
-            return
-        
-        if new_password != confirm_password:
-            QMessageBox.warning(self, "Error", "New passwords do not match")
-            return
-        
-        # Verify current password
-        user = self.user_manager.authenticate_user(self.current_user['username'], current_password)
-        if not user:
-            QMessageBox.warning(self, "Error", "Current password is incorrect")
-            return
-        
-        try:
-            self.user_manager.reset_password(self.current_user['username'], new_password)
-            
-            # Clear the form
-            self.current_password.clear()
-            self.new_password_reset.clear()
-            self.confirm_new_password.clear()
-            
-            QMessageBox.information(self, "Success", "Password changed successfully")
-        except ValueError as e:
-            QMessageBox.warning(self, "Error", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to change password: {str(e)}")
-    
-    def request_password_reset(self):
-        """Request a password reset for a user"""
-        username = self.forgot_username.text().strip()
-        
-        if not username:
-            QMessageBox.warning(self, "Error", "Username is required")
-            return
-        
-        try:
-            token = self.user_manager.generate_password_reset_token(username)
-            
-            # In a real application, you would send this token via email
-            # For this example, we'll just show it in a message box
-            QMessageBox.information(
-                self, 
-                "Password Reset", 
-                f"Password reset token generated (would be sent by email in a real app):\n\n{token}\n\n"
-                "This token will expire in 1 hour."
-            )
-        except ValueError as e:
-            QMessageBox.warning(self, "Error", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to generate reset token: {str(e)}")
+        elements.append(Paragraph("Pinnacle Ledger Financial Report", style_title))
+        elements.append(Spacer(1, 0.2 * inch))
+        elements.append(Paragraph(f"Year: <b>{year}</b> &nbsp;&nbsp; Month: <b>{month}</b>", style_h2))
+        elements.append(Spacer(1, 0.15 * inch))
 
-class LoginDialog(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.user_manager = UserManager()
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup the login dialog"""
-        self.setWindowTitle("Login")
-        self.setFixedSize(300, 200)
-        
-        layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-        
-        # Form fields
-        form_layout = QFormLayout()
-        
-        self.username = QLineEdit()
-        self.password = QLineEdit()
-        self.password.setEchoMode(QLineEdit.Password)
-        
-        form_layout.addRow("Username:", self.username)
-        form_layout.addRow("Password:", self.password)
-        
-        # Buttons
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.accepted.connect(self.authenticate)
-        btn_box.rejected.connect(self.reject)
-        
-        # Forgot password link
-        forgot_link = QLabel("<a href='#'>Forgot password?</a>")
-        forgot_link.setOpenExternalLinks(False)
-        forgot_link.linkActivated.connect(self.show_forgot_password)
-        
-        layout.addLayout(form_layout)
-        layout.addWidget(btn_box)
-        layout.addWidget(forgot_link, alignment=Qt.AlignRight)
-        
-        self.setLayout(layout)
-    
-    def authenticate(self):
-        """Authenticate the user"""
-        username = self.username.text().strip()
-        password = self.password.text()
-        
-        if not username or not password:
-            QMessageBox.warning(self, "Error", "Username and password are required")
-            return
-        
+        # Section 1: Funds & Expenses Overview
+        elements.append(Paragraph("Funds & Expenses Overview", style_h3))
+
+        # --- Insert charts as images ---
+
+        # Helper to save a FigureCanvas as PNG and return RLImage
+        def canvas_to_rlimage(canvas, width=400, height=250):
+            buf = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            canvas.figure.savefig(buf.name, bbox_inches='tight', dpi=120)
+            img = RLImage(buf.name, width=width, height=height)
+            img.hAlign = 'LEFT'
+            return img, buf
+
+        # Funds & Expenses chart
+        img1, buf1 = canvas_to_rlimage(self.funds_expenses_chart, width=400, height=250)
+        elements.append(Paragraph("Monthly Funds & Expenses Chart", style_normal))
+        elements.append(img1)
+        elements.append(Spacer(1, 0.1 * inch))
+
+        # Unused Funds chart
+        img2, buf2 = canvas_to_rlimage(self.unused_funds_chart, width=350, height=250)
+        elements.append(Paragraph("Unused Funds by Source Chart", style_normal))
+        elements.append(img2)
+        elements.append(Spacer(1, 0.1 * inch))
+
+        # Monthly Funds/Expenses Table
+        months_labels = []
+        funds_vals = []
+        expenses_vals = []
+        for r in data['monthly']:
+            m = int(r["month"]) if r["month"] else 0
+            months_labels.append(QDate.longMonthName(m) if m else "")
+            funds_vals.append(r["funds"] or 0)
+            expenses_vals.append(abs(r["expenses"] or 0))
+        if months_labels:
+            table_data = [
+                [
+                    Paragraph("Month", style_table_header),
+                    Paragraph("Funds", style_table_header),
+                    Paragraph("Expenses", style_table_header)
+                ]
+            ]
+            for i in range(len(months_labels)):
+                table_data.append([
+                    Paragraph(months_labels[i], style_table_cell),
+                    Paragraph(f"{funds_vals[i]:,.2f}", style_table_cell),
+                    Paragraph(f"{expenses_vals[i]:,.2f}", style_table_cell)
+                ])
+            t = Table(table_data, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#007bff")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 0.15 * inch))
+
+        # Unused Funds Table
+        elements.append(Paragraph("Unused Funds by Source", style_h3))
+        unused_funds = data['unused_funds']
+        if unused_funds:
+            table_data = [
+                [
+                    Paragraph("Fund Name", style_table_header),
+                    Paragraph("Received", style_table_header),
+                    Paragraph("Allocated", style_table_header),
+                    Paragraph("Unused", style_table_header)
+                ]
+            ]
+            for r in unused_funds:
+                unused = (r["received"] or 0) - (r["allocated"] or 0)
+                table_data.append([
+                    Paragraph(r["FundName"], style_table_cell),
+                    Paragraph(f"{r['received'] or 0:,.2f}", style_table_cell),
+                    Paragraph(f"{r['allocated'] or 0:,.2f}", style_table_cell),
+                    Paragraph(f"{unused:,.2f}", style_table_cell)
+                ])
+            t = Table(table_data, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#28a745")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 0.15 * inch))
+
+        # Section 2: Expenses vs Budget by Project
+        elements.append(Paragraph("Expenses vs Budget Allocated (by Project)", style_h3))
+
+        # Project Expense chart
+        img3, buf3 = canvas_to_rlimage(self.project_expense_chart, width=500, height=250)
+        elements.append(Paragraph("Project Budget vs Actual Spending Chart", style_normal))
+        elements.append(img3)
+        elements.append(Spacer(1, 0.1 * inch))
+
+        projects = data['projects']
+        if projects:
+            table_data = [
+                [
+                    Paragraph("Project", style_table_header),
+                    Paragraph("Budgeted", style_table_header),
+                    Paragraph("Spent", style_table_header),
+                    Paragraph("Utilization (%)", style_table_header)
+                ]
+            ]
+            for r in projects:
+                budgeted = r["budgeted"] or 0
+                spent = abs(r["spent"] or 0)
+                pct = (spent / budgeted * 100) if budgeted else 0
+                table_data.append([
+                    Paragraph(r["ProjectName"], style_table_cell),
+                    Paragraph(f"{budgeted:,.2f}", style_table_cell),
+                    Paragraph(f"{spent:,.2f}", style_table_cell),
+                    Paragraph(f"{pct:.1f}%", style_table_cell)
+                ])
+            t = Table(table_data, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#17a2b8")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 0.15 * inch))
+
+        # Section 3: Transaction Summary by Subcategory
+        elements.append(Paragraph("Transaction Summary by Subcategory", style_h3))
+        subcats = data['subcategories']
+        if subcats:
+            table_data = [
+                [
+                    Paragraph("Subcategory", style_table_header),
+                    Paragraph("Total Funds", style_table_header),
+                    Paragraph("Total Expenses", style_table_header)
+                ]
+            ]
+            for r in subcats:
+                table_data.append([
+                    Paragraph(r["Subcategory"] or "N/A", style_table_cell),
+                    Paragraph(f"{r['total_funds'] or 0:,.2f}", style_table_cell),
+                    Paragraph(f"{abs(r['total_expenses'] or 0):,.2f}", style_table_cell)
+                ])
+            t = Table(table_data, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6f42c1")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 0.15 * inch))
+
+        # Footer
+        def footer(canvas, doc):
+            canvas.saveState()
+            footer_text = f"Printed by Pinnacle Ledger    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            canvas.setFont("Helvetica", 9)
+            canvas.drawRightString(doc.pagesize[0] - 30, 20, footer_text)
+            canvas.restoreState()
+
         try:
-            user = self.user_manager.authenticate_user(username, password)
-            if user:
-                self.user = user
-                self.accept()
-            else:
-                QMessageBox.warning(self, "Error", "Invalid username or password")
-        except AccountLockedException as e:
-            QMessageBox.warning(self, "Account Locked", str(e))
+            doc.build(elements, onFirstPage=footer, onLaterPages=footer)
+            QMessageBox.information(self, "Export Successful", f"Report exported to {file_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Login failed: {str(e)}")
-    
-    def show_forgot_password(self):
-        """Show the forgot password dialog"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Reset Password")
-        layout = QVBoxLayout()
-        
-        instruction = QLabel("Enter your username to receive a password reset link:")
-        username = QLineEdit()
-        submit_btn = QPushButton("Submit")
-        
-        def submit():
-            username_text = username.text().strip()
-            if not username_text:
-                QMessageBox.warning(dialog, "Error", "Username is required")
-                return
-            
-            try:
-                token = self.user_manager.generate_password_reset_token(username_text)
-                QMessageBox.information(
-                    dialog,
-                    "Reset Link Sent",
-                    f"Password reset token generated (would be sent by email in a real app):\n\n{token}"
-                )
-                dialog.accept()
-            except ValueError as e:
-                QMessageBox.warning(dialog, "Error", str(e))
-            except Exception as e:
-                QMessageBox.critical(dialog, "Error", f"Failed to generate reset token: {str(e)}")
-        
-        submit_btn.clicked.connect(submit)
-        
-        layout.addWidget(instruction)
-        layout.addWidget(username)
-        layout.addWidget(submit_btn)
-        dialog.setLayout(layout)
-        dialog.exec_()
+            QMessageBox.warning(self, "Export Failed", f"PDF export failed:\n{e}")
+        finally:
+            # Clean up temp files
+            for buf in [buf1, buf2, buf3]:
+                try:
+                    os.unlink(buf.name)
+                except Exception:
+                    pass
+
+def export_table_to_file(table_widget, parent=None, title="Exported Table"):
+    """
+    Export the given QTableWidget to PDF or Excel, with a file dialog for user choice.
+    Requires: openpyxl, reportlab, PyQt5.
+    :param table_widget: QTableWidget to export
+    :param parent: parent widget for dialogs
+    :param title: Title for PDF export
+    """
+
+    # Ask user for export type and file path
+    options = QFileDialog.Options()
+    file_types = "PDF Files (*.pdf);;Excel Files (*.xlsx)"
+    file_path, selected_filter = QFileDialog.getSaveFileName(
+        parent, "Export Table", "", file_types, options=options
+    )
+    if not file_path:
+        return
+
+    # Determine export type
+    if selected_filter.startswith("PDF"):
+        if not file_path.lower().endswith(".pdf"):
+            file_path += ".pdf"
+        try:
+            export_table_to_pdf(table_widget, file_path, title=title)
+            QMessageBox.information(parent, "Export Successful", f"Table exported to {file_path}")
+        except Exception as e:
+            QMessageBox.warning(parent, "Export Failed", f"PDF export failed:\n{e}")
+    elif selected_filter.startswith("Excel"):
+        if not file_path.lower().endswith(".xlsx"):
+            file_path += ".xlsx"
+        try:
+            export_table_to_excel(table_widget, file_path)
+            QMessageBox.information(parent, "Export Successful", f"Table exported to {file_path}")
+        except Exception as e:
+            QMessageBox.warning(parent, "Export Failed", f"Excel export failed:\n{e}")
+
+def export_table_to_excel(table_widget, file_path):
+    wb = Workbook()
+    ws = wb.active
+
+    # Write headers
+    headers = []
+    for col in range(table_widget.columnCount()):
+        header = table_widget.horizontalHeaderItem(col)
+        headers.append(header.text() if header else f"Column {col+1}")
+    ws.append(headers)
+
+    # Write data
+    for row in range(table_widget.rowCount()):
+        row_data = []
+        for col in range(table_widget.columnCount()):
+            item = table_widget.item(row, col)
+            if item:
+                row_data.append(item.text())
+            else:
+                # If cell has a widget (e.g., actions), skip or add empty
+                cell_widget = table_widget.cellWidget(row, col)
+                row_data.append("") if cell_widget else row_data.append("")
+        ws.append(row_data)
+    wb.save(file_path)
+
+def export_table_to_pdf(table_widget, file_path, title="Exported Table"):
+    # Prepare data
+    data = []
+    headers = []
+    col_count = table_widget.columnCount() - 1  # Exclude last column (Actions)
+    for col in range(col_count):
+        header = table_widget.horizontalHeaderItem(col)
+        headers.append(header.text() if header else f"Column {col+1}")
+    data.append(headers)
+    for row in range(table_widget.rowCount()):
+        row_data = []
+        for col in range(col_count):
+            item = table_widget.item(row, col)
+            if item:
+                row_data.append(item.text())
+            else:
+                cell_widget = table_widget.cellWidget(row, col)
+                row_data.append("") if cell_widget else row_data.append("")
+        data.append(row_data)
+
+    # Create PDF
+    pdf = SimpleDocTemplate(file_path, pagesize=landscape(A4))
+
+    # Table style
+    table = Table(data, repeatRows=1)
+    style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#007bff")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ])
+    table.setStyle(style)
+
+    # Title paragraph
+    styles = getSampleStyleSheet()
+    title_paragraph = Paragraph(f"<b>{title}</b>", styles['Title'])
+    spacer = Spacer(1, 0.2 * inch)
+
+    # Footer callback
+    def footer(canvas, doc):
+        canvas.saveState()
+        footer_text = f"Printed by Pinnacle Ledger    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        canvas.setFont("Helvetica", 9)
+        canvas.drawRightString(doc.pagesize[0] - 30, 20, footer_text)
+        canvas.restoreState()
+
+    elems = [title_paragraph, spacer, table]
+    pdf.build(elems, onFirstPage=footer, onLaterPages=footer)
+
+class AboutSystemDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About Pinnacle Ledger – Fund & Budget Manager for Non-Profits System")
+        self.setMinimumWidth(600)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f9f9f9;
+                border-radius: 14px;
+                font-family: 'Segoe UI', 'Lato', sans-serif;
+                font-size: 15px;
+                color: #1B263B;
+            }
+            QLabel#Title {
+                font-size: 26px;
+                font-weight: bold;
+                color: #007bff;
+                margin-bottom: 8px;
+            }
+            QLabel#Subtitle {
+                font-size: 17px;
+                font-weight: 600;
+                color: #343a40;
+                margin-bottom: 12px;
+            }
+            QTextEdit, QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        # Title
+        title = QLabel("Pinnacle Ledger – Fund & Budget Manager for Non-Profits System")
+        title.setObjectName("Title")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        # Subtitle
+        subtitle = QLabel("Workflow & Usage Guide")
+        subtitle.setObjectName("Subtitle")
+        subtitle.setAlignment(Qt.AlignCenter)
+        layout.addWidget(subtitle)
+        # Main content (rich text)
+        content = QLabel()
+        content.setWordWrap(True)
+        content.setTextFormat(Qt.RichText)
+        content.setText("""
+        <ul style="font-size:14px;">
+            <li><b>Dashboard:</b> Get a quick overview of funds, budgets, transactions, and project performance.</li>
+            <li><b>Donors:</b> Register and manage donor information. Filter and export donor lists.</li>
+            <li><b>Funds:</b> Record incoming funds, link them to donors, programs, and projects. Track restricted/unrestricted funds.</li>
+            <li><b>Budgets:</b> Allocate budgets to programs, projects, and activities. Ensure budgets do not exceed available funds.</li>
+            <li><b>Transactions:</b> Record both fund receipts and expenses. Expenses are validated against allocated budgets.</li>
+            <li><b>Categories & Subcategories:</b> Organize expense types for detailed reporting and filtering.</li>
+            <li><b>Programs & Administration:</b> Manage organizational programs and administrative units.</li>
+            <li><b>Projects & Activities:</b> Define projects under programs and break them down into activities.</li>
+            <li><b>Reports:</b> Generate and export financial reports by year/month, including charts and summaries.</li>
+        </ul>
+        <br>
+        <b>Typical Workflow:</b>
+        <ol style="font-size:14px;">
+            <li>Register <b>Donors</b> and define <b>Programs</b> and <b>Projects</b>.</li>
+            <li>Add <b>Funds</b> received from donors, linking them to the appropriate program/project.</li>
+            <li>Allocate <b>Budgets</b> from available funds to specific programs, projects, and activities.</li>
+            <li>Record <b>Transactions</b> for both incoming funds and outgoing expenses.</li>
+            <li>Use <b>Categories</b> and <b>Subcategories</b> to classify expenses for better tracking.</li>
+            <li>Monitor progress and generate <b>Reports</b> for financial analysis and compliance.</li>
+        </ol>
+        <b>Tips:</b>
+        <ul style="font-size:14px;">
+            <li>Use the sidebar to navigate between modules.</li>
+            <li>Export tables and reports to PDF/Excel for sharing or record-keeping.</li>
+            <li>Hover over buttons for tooltips and quick actions.</li>
+        </ul>
+        """)
+        layout.addWidget(content)
+        # Close button
+        btns = QHBoxLayout()
+        btns.addStretch()
+        close_btn = button("Close", "secondary", "md")
+        close_btn.clicked.connect(self.accept)
+        btns.addWidget(close_btn)
+        layout.addLayout(btns)
+# Example usage in a page:
 # Styles and General Design
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
@@ -6555,26 +6384,12 @@ class TableTitle(QLabel):
         self.setFont(QFont("Lato-Regular", 14))
         self.setStyleSheet("color:#1B263B;")
 
-def main():
-    app = QApplication([])
-    
-    # Show login dialog
-    login = LoginDialog()
-    if login.exec_() == QDialog.Accepted:
-        # If login successful, show user management system
-        user = login.user
-        window = UserManagementPage(user)
-        window.show()
-        app.exec_()
-
 if __name__ == "__main__":
-    # Create a default admin user if none exists
-    user_manager = UserManager()
-    if not user_manager.get_user_by_username("admin"):
-        user_manager.create_user("admin", "admin123", is_admin=True)
-    
-    main()
-        
+    app = QApplication([])
+    # Directly show MainWindow (bypassing UserManager and LoginDialog)
+    main_window = MainWindow()
+    main_window.show()
+    app.exec_()
 
 
        
