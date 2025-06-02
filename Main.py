@@ -6,9 +6,7 @@ import sys
 import os
 import numpy as np
 import tempfile
-import os
 import matplotlib.pyplot as plt
-import numpy as np
 from datetime import datetime
 # Matplotlib for charts
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -20,12 +18,9 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.units import inch
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-import tempfile
+from reportlab.platypus import PageBreak
 from reportlab.platypus import Image as RLImage
-import os
 import time
 
 # Utility: Refresh mechanism for all pages
