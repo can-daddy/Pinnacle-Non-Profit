@@ -10,7 +10,7 @@
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{75F62DE5-7601-4547-984B-D8C2EF094C93}
+AppId={{5AE69083-4E47-4D51-91B9-F61F15E58957}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}
@@ -19,13 +19,12 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
-DisableDirPage=yes
 DisableProgramGroupPage=yes
 InfoBeforeFile=C:\Users\HP\3D Objects\Pinnacle Non-Profit\README.md
 ; Remove the following line to run in administrative install mode (install for all users.)
 PrivilegesRequired=lowest
 OutputDir=C:\Users\HP\3D Objects\Pinnacle Ledger setup
-OutputBaseFilename=Pinnacle ledger v1.0
+OutputBaseFilename=Pinnacle Ledger_Setup_v1
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -37,8 +36,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\HP\3D Objects\pinnacle Ledger\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\HP\3D Objects\Pinnacle Non-Profit\Icons\*"; DestDir: "{app}\Icons"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\Users\HP\3D Objects\Pinnacle Non-Profit\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\HP\3D Objects\Pinnacle Non-Profit\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\HP\3D Objects\Pinnacle Non-Profit\Icons\PL_Logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
