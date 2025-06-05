@@ -225,8 +225,7 @@ class MainWindow(QWidget):
         # Create the sidebar and main body
         # Sidebar
         Sidebar = QWidget()
-        Sidebar.setMaximumWidth(225)
-        Sidebar.setMinimumWidth(180)
+        Sidebar.setFixedWidth(225)
         Sidebar.setStyleSheet("""
                               background-color: #1B263B;
                                color: white;
@@ -257,9 +256,9 @@ class MainWindow(QWidget):
         self.FundButton = Links("Fund")
         self.BudgetButton = Links("Budget")
         self.TransactionButton = Links("Transaction")
-        self.CategoriesButton = Links("Categories && Subcategories")
-        self.ProgramsButton = Links("Programs && Administration")
-        self.ProjectsButton = Links("Projects && Activities")
+        self.CategoriesButton = Links("Categories")
+        self.ProgramsButton = Links("Programs")
+        self.ProjectsButton = Links("Projects")
         self.ReportButton = Links("Report")
 
         # Add buttons to sidebar layout
@@ -478,7 +477,6 @@ class MainWindow(QWidget):
 
     # In MainWindow __init__, after self.Orgname = QLabel("Organization Name")
         
-
 class DonorsPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -488,9 +486,9 @@ class DonorsPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Donors")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Donor")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Donor")
         self.AddButton.clicked.connect(self.DonorForm)
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofDonors,title="Donors List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -877,8 +875,8 @@ class Categories_SubCategories(QWidget):
         self.ContentAreaHeader = QWidget()
         self.ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Categories & Subcategories")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New SubCategory")
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New SubCategory")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofCategories, title="Categories & Subcategories List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
@@ -922,7 +920,7 @@ class Categories_SubCategories(QWidget):
             conn.close()
         for cat in categories:
             self.category_filter.addItem(cat["Name"], cat["CategoryID"])
-        self.category_manage = outline_button("Manage Category", "info", "sm")
+        self.category_manage = outline_button("Manage Category", "info", "md")
         self.category_manage.clicked.connect(self.Category)
         TableHeaderLayout.addWidget(TableTitleLabel)
         TableHeaderLayout.addStretch()
@@ -1348,8 +1346,8 @@ class Program_Admnistration(QWidget):
         self.ContentAreaHeader = QWidget()
         self.ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Programs & Administration")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Program/Admin")
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Program/Admin")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda :export_table_to_file(self.TableofPrograms, title="Programs & Administration List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
@@ -1579,8 +1577,8 @@ class Projects_Activities(QWidget):
         self.ContentAreaHeader = QWidget()
         self.ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Projects & Activities")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Project/Activity")
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Project/Activity")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda : export_table_to_file(self.TableofActivities, title="Projects & Activities List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         self.ContentAreaHeaderLayout.addStretch()
@@ -1637,7 +1635,7 @@ class Projects_Activities(QWidget):
         for proj in projects:
             Projects_filter.addItem(proj["ProjectName"], proj["ProjectID"])
         Projects_filter.setStyleSheet(FormStyles())
-        self.project_manage = outline_button("Manage Project", "info", "sm")
+        self.project_manage = outline_button("Manage Project", "info", "md")
         self.project_manage.clicked.connect(self.Project)
         TableHeaderLayout.addWidget(TableTitleLabel)
         TableHeaderLayout.addStretch()
@@ -2234,12 +2232,12 @@ class TransactionsPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Transactions")
-        self.AddButton = button("Transaction", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Expenses Transaction")
+        self.AddButton = button("Transaction", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Expenses Transaction")
         self.AddButton.clicked.connect(self.add_transaction)
-        self.addFund = button("Add Fund", "info", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
+        self.addFund = button("Add Fund", "info", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
         # Connect to the add_fund method of the FundPage instance in the main window
         self.addFund.clicked.connect(lambda: self.parent().parent().parent().findChild(FundPage).add_fund())
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofTransactions, title="Transactions List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -3173,8 +3171,8 @@ class FundPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Funds")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Fund")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda : export_table_to_file(self.TableofFunds,title="Funds List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -3666,8 +3664,8 @@ class BudgetsPage(QWidget):
         ContentAreaHeader = QWidget()
         ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Budgets")
-        self.AddButton = button("Add", "primary", "md", icon_path="Icons/add.svg", icon_toolTip="Add New Budget")
-        self.ExportButton = button("Export", "success", "md", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New Budget")
+        self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofBudgets, title="Budgets List"))
         ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
         ContentAreaHeaderLayout.addStretch()
@@ -4371,7 +4369,6 @@ class DashboardPage(QWidget):
         card = self.create_card("Fund Overview", "#007bff")
         layout = QVBoxLayout(card)
         layout.setSpacing(15)
-
         # Stats row with modern design
         stats_row = QHBoxLayout()
         stats_row.setSpacing(15)
@@ -4381,18 +4378,20 @@ class DashboardPage(QWidget):
             widget.setStyleSheet(f"""
                 background: white;
                 border-radius: 8px;
-                padding: 12px;
+                padding: 12px; 
                 border-left: 4px solid {color};
+                font-size: 14pt;
             """)
             box_layout = QVBoxLayout(widget)
             box_layout.setSpacing(4)
 
             if icon:
                 icon_label = QLabel()
-                icon_label.setPixmap(QPixmap(icon).scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                icon_label.setPixmap(QPixmap(icon).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                 box_layout.addWidget(icon_label, alignment=Qt.AlignRight)
 
             value_label = QLabel(str(value))
+            value_label.setObjectName("value_label")
             value_label.setStyleSheet(f"""
                 font-size: 18px;
                 font-weight: bold;
@@ -4401,7 +4400,7 @@ class DashboardPage(QWidget):
 
             label_label = QLabel(label)
             label_label.setStyleSheet("""
-                font-size: 12px;
+                font-size: 12pt;
                 color: #6c757d;
             """)
 
@@ -4447,9 +4446,9 @@ class DashboardPage(QWidget):
         unrestricted = fund_types.get("Unrestricted", 0)
 
         # Update stats
-        self.fund_received_stat.findChild(QLabel).setText(f"{total_funds:,.2f}")
-        self.fund_allocated_stat.findChild(QLabel).setText(f"{total_budget:,.2f}")
-        self.fund_available_stat.findChild(QLabel).setText(f"{available:,.2f}")
+        self.fund_received_stat.findChild(QLabel,"value_label").setText(f"{total_funds:,.2f}")
+        self.fund_allocated_stat.findChild(QLabel,"value_label").setText(f"{total_budget:,.2f}")
+        self.fund_available_stat.findChild(QLabel,"value_label").setText(f"{available:,.2f}")
 
         # Enhanced funds flow chart
         fig1 = self.funds_flow_chart.figure
@@ -4459,6 +4458,7 @@ class DashboardPage(QWidget):
         labels = ["Received", "Allocated", "Available"]
         values = [total_funds, total_budget, available]
         colors = ["#007bff", "#28a745", "#dc3545"]
+        
 
         # Modern bar chart with effects
         bars = ax1.bar(labels, values, color=colors, width=0.6, edgecolor='white', linewidth=2)
@@ -4507,7 +4507,7 @@ class DashboardPage(QWidget):
             startangle=90,
             explode=explode,
             wedgeprops=dict(width=0.4, edgecolor='w'),  # Creates donut
-            textprops={'fontsize': 10},
+            textprops={'fontsize': 12},
             autopct=lambda p: f'{p:.1f}%\n({p*sum(values)/100:,.0f})' if sum(values) > 0 else ""
         )
 
@@ -5148,6 +5148,7 @@ class DashboardPage(QWidget):
                 self.transaction_table.setItem(i, 3, QTableWidgetItem(row["Reference"] or ""))
         else:
             self.transaction_table.clearContents()
+    
 
     # Ensure dashboard refreshes after any DB-changing dialog is accepted
     # This is handled by refresh_all_pages(self) in the main app after add/edit/delete dialogs.
@@ -6054,64 +6055,58 @@ class Links(QPushButton):
         self.icon_path = icon_path
 
         self.setFlat(True)
-        self.setStyleSheet("""
-            QPushButton {
-                color: white;
-                background-color: transparent;
-                padding: 20px 12px;
-                text-align: left;
-                font-size: 16px;
-                font-family: Lato-Regular;
-            }
-            QPushButton:hover{
-                color: #006666;
-            }                             
-        """)
         self.setCheckable(True)
         self.setAutoExclusive(True)  # Only one active at a time
-
         self.toggled.connect(self.update_active_style)
 
-        # Set icon if provided, else reserve space
+        # Set icon if provided
         if self.icon_path:
             self.setIcon(QIcon(self.icon_path))
-            self.setIconSize(QSize(18, 18))
+            self.setIconSize(QSize(24, 24))  # Larger icon size
         else:
-            self.setIconSize(QSize(18, 18))  # reserve space for alignment
+            self.setIconSize(QSize(24, 24))  # Reserve space
+
+        # Initial styling
+        self.setStyleSheet(self.default_style())
+
+    def default_style(self):
+        return """
+            QPushButton {
+                color: #FFFFFF;
+                background-color: transparent;
+                padding: 20px 16px;
+                text-align: left;
+                font-size: 20px;
+                font-weight: bold;
+                font-family: Arial, sans-serif;
+                border: none;
+            }
+            QPushButton:hover, QPushButton:focus {
+                color: #00CED1;
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """
+
+    def active_style(self):
+        return """
+            QPushButton {
+                color: #1B263B;
+                background-color: #FFFFFF;
+                padding: 20px 16px;
+                text-align: left;
+                font-size: 20px;
+                font-weight: bold;
+                font-family: Arial, sans-serif;
+                border: none;
+            }
+            QPushButton:hover, QPushButton:focus {
+                color: #006666;
+                background-color: #F0F0F0;
+            }
+        """
 
     def update_active_style(self, checked):
-        if checked:
-            self.setStyleSheet("""
-                QPushButton {
-                    color: #1B263B;
-                    background-color: white;
-                    border: none;
-                    outline: none;
-                    padding: 20px 12px;
-                    text-align: left;
-                    font-size: 16px;
-                    font-family: Lato-Regular;
-                }
-                QPushButton:hover{
-                    color: #006666;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QPushButton {
-                    color: white;
-                    background-color: transparent;
-                    border: none;
-                    outline: none;
-                    padding: 20px 12px;
-                    text-align: left;
-                    font-size: 16px;
-                    font-family: Lato-Regular;
-                }
-                QPushButton:hover{
-                    color: #006666;
-                }
-            """)
+        self.setStyleSheet(self.active_style() if checked else self.default_style())
 
 class Title(QLabel):
     def __init__(self, text="", parent=None):
@@ -6164,19 +6159,12 @@ def FormStyles():
        *{
         background-color: white;
         }
-        QLineEdit{
-        padding: 375rem 75rem;
+        QLineEdit, QSpinBox {
+        padding: 6px 10px;
         border: 1px solid #ced4da;
         border-radius: 3px;
         height: 30px;
-        font: 10pt;
-        } 
-        QSpinBox{
-        padding: 375rem 75rem;
-        border: 1px solid #ced4da;
-        border-radius: 3px;
-        height: 30px;
-        font: 10pt;
+        font: 12pt;
         } 
         QDateEdit {
         border: 1px solid #ced4da; /* Light gray border */
@@ -6257,10 +6245,10 @@ def FormStyles():
         QComboBox {
         border: 1px solid #ced4da;
         border-radius: 4px;
-        padding: 5px;
+        padding: 8px 12px;
         background-color: #f8f9fa;
-        font-size: 14px;
-        color: #495057;
+        font-size: 16px;
+        color: #212529;
         }
 
         QComboBox:hover {
@@ -6269,6 +6257,8 @@ def FormStyles():
 
         QComboBox:focus {
             border-color: #0d6efd;
+            outline: 2px solid #0d6efd;
+            outline-offset: 1px;
         }
 
         QComboBox QAbstractItemView {
@@ -6276,8 +6266,8 @@ def FormStyles():
             background-color: #fff;
             selection-background-color: #0d6efd;
             selection-color: white;
-            padding: 5px;
-            font-size: 14px;
+            padding: 6px 12px;
+            font-size: 16px;
         }
 
         QComboBox::drop-down {
@@ -6288,11 +6278,6 @@ def FormStyles():
             background-color: #e9ecef;
         }
 
-        QComboBox::down-arrow {
-            image: url('icons/down-arrow.png');
-            width: 16px;
-            height: 16px;
-        }
         QFrame{
         border-radius: 5px;
         }
@@ -6306,27 +6291,22 @@ def FormStyles():
         padding: 6px 12px;
         font-size: 14px;
         text-align: center;
-        transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-         }
+        }
 
-        /* Hover State */
         QPushButton:hover {
-            background-color: #0056b3; /* Darker blue like Bootstrap */
+            background-color: #0056b3;
             border: 1px solid #0056b3;
         }
 
-        /* Pressed (Active) State */
         QPushButton:pressed {
             background-color: #004080;
             border: 1px solid #004080;
         }
 
-        /* Focus (When Clicked or Tabbed) */
         QPushButton:focus {
-            outline: none;
-            box-shadow: 0 0 5px rgba(0, 123, 255, 0.5); /* Bootstrap-like glow effect */
+            outline: 2px solid #80bdff;
         }
-         """
+    """
     return form_css
 
 def DialogStyles():
