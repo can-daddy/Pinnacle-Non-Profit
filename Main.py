@@ -2351,8 +2351,21 @@ class TransactionsPage(QWidget):
         self.TableofTransactions.setHorizontalHeaderLabels([
             "Date", "Budget Year", "Type", "Amount", "Program", "Project", "Activity", "Reference", "Subcategories"
         ,"Actions"])
-        self.TableofTransactions.horizontalHeader().setStretchLastSection(True)
-        self.TableofTransactions.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        header = self.TableofTransactions.horizontalHeader()
+
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Date
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Budget Year
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Type
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Amount
+
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Program
+        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Project
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Activity
+        header.setSectionResizeMode(7, QHeaderView.Stretch)  # Reference
+        header.setSectionResizeMode(8, QHeaderView.Stretch)  # Subcategories
+
+        header.setSectionResizeMode(9, QHeaderView.Stretch)
+
         Layout.addWidget(self.TableofTransactions)
 
         # Connect search and filters
@@ -4854,7 +4867,7 @@ class DashboardPage(QWidget):
                 border-radius: 12px;
                 background: white;
                 margin-top: 10px;
-                padding-top: 20px;
+                padding: 20px;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
