@@ -1,0 +1,40 @@
+﻿Financial Management System - Documentation
+Modules Overview
+• Dashboard: Get a quick overview of funds, budgets, transactions, and project performance.
+• Donors: Register and manage donor information. Filter and export donor lists.
+• Funds: Record incoming funds, link them to donors, programs, and projects. Track restricted/unrestricted funds.
+• Budgets: Allocate budgets to programs, projects, and activities. Ensure budgets do not exceed available funds.
+• Transactions: Record both fund receipts and expenses. Expenses are validated against allocated budgets.
+• Categories & Subcategories: Organize expense types for detailed reporting and filtering.
+• Programs & Administration: Manage organizational programs and administrative units.
+• Projects & Activities: Define projects under programs and break them down into activities.
+• Reports: Generate and export financial reports by year/month, including charts and summaries.
+Typical Workflow for Users
+• Set Up Programs and Administrators
+o Begin by adding your Programs or Administrative Units—the major areas your organization works in.
+o Include who manages each program for accountability.
+• Register Donors
+o Add details of Donors, including their type (e.g. individual, organization) and contact information.
+o This will help track the source of funds later.
+• Organize Expense Types
+o Create Categories (like Office, Transport, Training) and Subcategories (e.g. Fuel, Stationery).
+o This helps classify how money is spent.
+• Create Projects and Activities
+o Under each Program, define Projects (like "Youth Training" or "Health Campaign").
+o Break projects into specific Activities (e.g. "Training Session 1", "Buying Equipment").
+• Add Incoming Funds
+o When funds are received, record them under Funds and link them to the relevant Donor, Program, and Project.
+o Mention if the fund is restricted (for specific use) or unrestricted.
+• Allocate Budgets
+o From the available funds, assign Budgets to specific Projects and Activities.
+o Ensure budgets align with planned work and available money.
+• Record Financial Transactions
+o Log all Transactions, both income and expenses.
+o Link each transaction to a Program, Project, Activity, and Expense Type (Category/Subcategory).
+o Add descriptions and references for clarity and tracking.
+• Monitor and Report
+o Use the Reports section to view summaries of funds, expenses, and budgets.
+o Filter by year, Month.
+o Generate reports to PDF.
+Remind: The Export option on all tables have to two ways to export either Excel or PDF.
+
