@@ -23,8 +23,6 @@ from reportlab.platypus import PageBreak
 from reportlab.platypus import Image as RLImage
 import time
 
-# Utility: Refresh mechanism for all pages
-
 class RefreshablePageMixin:
     """
     Mixin to add a refresh_data() method and a signal for refresh.
@@ -555,11 +553,11 @@ class DonorsPage(QWidget):
 
     def DonorForm(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Register New Donor")
+        dialog.setWindowTitle("Add Donor")
         dialog.setStyleSheet(DialogStyles())
         layout = QVBoxLayout(dialog)
         # Title
-        title = QLabel("Register New Donor")
+        title = QLabel("Add Donor")
         title.setStyleSheet("font-size: 22px; font-weight: bold; color: #1B263B; margin-bottom: 12px;")
         layout.addWidget(title, alignment=Qt.AlignHCenter)
 
@@ -875,7 +873,7 @@ class Categories_SubCategories(QWidget):
         self.ContentAreaHeader = QWidget()
         self.ContentAreaHeaderLayout = QHBoxLayout()
         self.Title = Title("Categories & Subcategories")
-        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add New SubCategory")
+        self.AddButton = button("Add", "primary", "lg", icon_path="Icons/add.svg", icon_toolTip="Add Subcategory")
         self.ExportButton = button("Export", "success", "lg", icon_path="Icons/print.svg", icon_toolTip="Export as Pdf")
         self.ExportButton.clicked.connect(lambda: export_table_to_file(self.TableofCategories, title="Categories & Subcategories List"))
         self.ContentAreaHeaderLayout.addWidget(self.Title, alignment=Qt.AlignLeft)
@@ -1036,6 +1034,7 @@ class Categories_SubCategories(QWidget):
             form = QFormLayout()
             name_input = QLineEdit()
             desc_input = QLineEdit()
+            form.addRow(FormTitle("Add Category"))
             form.addRow("Name:", name_input)
             form.addRow("Description:", desc_input)
             lyt.addLayout(form)
@@ -1093,6 +1092,7 @@ class Categories_SubCategories(QWidget):
             form = QFormLayout()
             name_input = QLineEdit(cat["Name"])
             desc_input = QLineEdit(cat["Description"])
+            form.addRow(FormTitle("Edit Category"))
             form.addRow("Name:", name_input)
             form.addRow("Description:", desc_input)
             lyt.addLayout(form)
@@ -1203,11 +1203,13 @@ class Categories_SubCategories(QWidget):
         dlg.setStyleSheet(DialogStyles())
         lyt = QVBoxLayout(dlg)
         form = QFormLayout()
+        formtitle = FormTitle("Add Subcategory")
         categories = Categoriesvalues()
         cat_combo = QComboBox()
         cat_combo.addItems(categories.get_names())
         name_input = QLineEdit()
         desc_input = QLineEdit()
+        form.addRow(formtitle)
         form.addRow("Category:", cat_combo)
         form.addRow("Name:", name_input)
         form.addRow("Description:", desc_input)
@@ -1276,6 +1278,7 @@ class Categories_SubCategories(QWidget):
             cat_combo.setCurrentIndex(idx)
         name_input = QLineEdit(sub["Name"])
         desc_input = QLineEdit(sub["Description"])
+        form.addRow(FormTitle("Edit Subcategory"))
         form.addRow("Category:", cat_combo)
         form.addRow("Name:", name_input)
         form.addRow("Description:", desc_input)
@@ -1451,6 +1454,7 @@ class Program_Admnistration(QWidget):
         name_input = QLineEdit()
         desc_input = QLineEdit()
         manager_input = QLineEdit()
+        form.addRow(FormTitle("Add Program/Admin"))
         form.addRow("Name:", name_input)
         form.addRow("Description:", desc_input)
         form.addRow("Manager:", manager_input)
@@ -1511,6 +1515,7 @@ class Program_Admnistration(QWidget):
         name_input = QLineEdit(prog["PA_Name"])
         desc_input = QLineEdit(prog["PA_Description"])
         manager_input = QLineEdit(prog["Manager"])
+        form.addRow(FormTitle("Edit Program/Admin"))
         form.addRow("Name:", name_input)
         form.addRow("Description:", desc_input)
         form.addRow("Manager:", manager_input)
@@ -1773,6 +1778,7 @@ class Projects_Activities(QWidget):
             project_combo.addItem("None", None)
             for proj in project_list:
                 project_combo.addItem(proj["ProjectName"], proj["ProjectID"])
+            form.addRow(FormTitle("Add Activity"))
             form.addRow("Name:", name_input)
             form.addRow("Description:", desc_input)
             form.addRow("Start Date:", start_input)
@@ -1870,6 +1876,7 @@ class Projects_Activities(QWidget):
                 if act["ProjectID"] == proj["ProjectID"]:
                     idx = i + 1  # +1 because of "None"
             project_combo.setCurrentIndex(idx)
+            form.addRow(FormTitle("Edit Activity"))
             form.addRow("Name:", name_input)
             form.addRow("Description:", desc_input)
             form.addRow("Start Date:", start_input)
@@ -2047,6 +2054,7 @@ class Projects_Activities(QWidget):
             program_combo.addItem("None", None)
             for prog in program_list:
                 program_combo.addItem(prog["PA_Name"], prog["PA_Id"])
+            form.addRow(FormTitle("Add Project"))
             form.addRow("Name:", name_input)
             form.addRow("Description:", desc_input)
             form.addRow("Start Date:", start_input)
@@ -2147,6 +2155,7 @@ class Projects_Activities(QWidget):
                 if proj["ProgramID"] == prog["PA_Id"]:
                     idx = i + 1  # +1 because of "None"
             program_combo.setCurrentIndex(idx)
+            form.addRow(FormTitle("Edit Project"))
             form.addRow("Name:", name_input)
             form.addRow("Description:", desc_input)
             form.addRow("Start Date:", start_input)
@@ -2609,6 +2618,7 @@ class TransactionsPage(QWidget):
         reference_input = QLineEdit()
 
         # Add widgets to form (Fund comes after Type)
+        form.addRow(FormTitle("Add Transaction"))
         form.addRow("Transaction Date:", date_input)
         form.addRow("Transaction Type:", type_input)
         form.addRow("Fund:", fund_input)
@@ -2991,6 +3001,7 @@ class TransactionsPage(QWidget):
         reference_input = QLineEdit(tx["Reference"] or "")
 
         # Add widgets to form (Fund comes after Type)
+        form.addRow(FormTitle("Edit Transaction"))
         form.addRow("Transaction Date:", date_input)
         form.addRow("Transaction Type:", type_input)
         form.addRow("Fund:", fund_input)
@@ -3416,6 +3427,7 @@ class FundPage(QWidget):
         program_combo.currentIndexChanged.connect(update_fundtype)
         project_combo.currentIndexChanged.connect(update_fundtype)
         update_fundtype()
+        form.addRow(FormTitle("Add Fund"))
         form.addRow("Name:", name_input)
         form.addRow("Budget Year:", year_input)
         form.addRow("Initial Date:", date_input)
@@ -3598,6 +3610,7 @@ class FundPage(QWidget):
         project_combo.currentIndexChanged.connect(update_fundtype)
         update_fundtype()
 
+        form.addRow(FormTitle("Edit Fund"))
         form.addRow("Name:", name_input)
         form.addRow("Budget Year:", year_input)
         form.addRow("Initial Date:", date_input)
@@ -3907,6 +3920,7 @@ class BudgetsPage(QWidget):
         description_input = QLineEdit()
 
         # Add to form
+        form.addRow(FormTitle("Add Budget"))
         form.addRow("Budget Year:", year_input)
         form.addRow("Program:", program_input)
         form.addRow("Project:", project_input)
@@ -4172,6 +4186,7 @@ class BudgetsPage(QWidget):
         description_input = QLineEdit(budget["BudgetDescription"] or "")
 
         # Add to form
+        form.addRow(FormTitle("Edit Budget"))
         form.addRow("Budget Year:", year_input)
         form.addRow("Program:", program_input)
         form.addRow("Project:", project_input)
@@ -6061,6 +6076,11 @@ def refresh_all_pages(widget):
         if hasattr(page, "refresh_data"):
             page.refresh_data()
 
+def FormTitle(Text):
+    label = QLabel(Text)
+    label.setAlignment(Qt.AlignCenter)
+    label.setFont(QFont('Poppins', 18))
+    return label
 
 class Links(QPushButton):
     def __init__(self, text="", icon_path=None, parent=None):
